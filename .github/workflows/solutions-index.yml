@@ -1,0 +1,44 @@
+name: Update solutions index
+
+# Regenerates the solutions table in README.md whenever a solution folder changes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*/README.md"
+      - "scripts/generate_solutions_index.py"
+      - ".github/workflows/solutions-index.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: solutions-index
+  cancel-in-progress: true
+
+jobs:
+  update-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate solutions index
+        run: python scripts/generate_solutions_index.py
+
+      - name: Commit changes if README is stale
+        run: |
+          if [[ -n "$(git status --porcelain README.md)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git commit -m "docs: refresh solutions index"
+            git push
+          else
+            echo "Solutions index already up to date."
+          fi

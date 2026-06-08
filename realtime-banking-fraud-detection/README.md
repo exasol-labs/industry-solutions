@@ -1,3 +1,8 @@
+<!--
+industry: Banking & Financial Services
+status: stable
+-->
+
 # Real-Time Banking Fraud Detection
 
 End-to-end banking fraud pipeline: PostgreSQL OLTP -> Kafka CDC with Debezium -> Exasol analytics -> in-database ML scoring.
