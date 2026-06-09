@@ -13,7 +13,7 @@ This solution is packaged as a single folder for inclusion in [`exasol-labs/indu
 
 https://github.com/user-attachments/assets/8d707b18-a52f-4228-a635-fbca49f753c4
 
-[Watch or download the MP4 demo](docs/assets/realtime-banking-fraud-detection.mp4)
+> Don't see the video? [Watch the demo](docs/assets/realtime-banking-fraud-detection.mp4).
 
 This solution shows how a bank can move from delayed fraud review to near real-time fraud visibility by streaming operational transaction changes into Exasol, building analytical fraud features, and scoring transactions directly where the governed data lives. For a business user, the impact is direct: suspicious transactions can be surfaced faster, analysts can trace the path from source transaction to model score, and fraud operations can reduce manual investigation time while keeping the pipeline transparent and repeatable.
 
@@ -33,10 +33,6 @@ PostgreSQL (OLTP)
 
 - [Technical Architecture](docs/architecture-technical.md)
 - [Fraud Features Guide](docs/fraud-features-guide.md)
-
-https://github.com/user-attachments/assets/6f3f9264-cc35-4b1f-9241-ff064bb1886b
-
-
 - [Customer Demo Brief](docs/customer-demo-brief.md)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
@@ -48,18 +44,19 @@ From the `realtime-banking-fraud-detection/` folder:
 ```bash
 cp .env.example .env
 # edit .env and set your PostgreSQL, Debezium, and Exasol credentials
-docker compose up -d --build
+set -a
+. ./.env
+set +a
 bash deploy.sh
 ```
 
 ```powershell
 Copy-Item .env.example .env
 # edit .env and set your PostgreSQL, Debezium, and Exasol credentials
-docker compose up -d --build
 pwsh -File .\deploy.ps1
 ```
 
-By default, `docker-compose.yml` provisions PostgreSQL, Kafka, Zookeeper, Schema Registry, Kafka Connect, and Kafka UI so the demo stack starts in one go.
+By default, the deployment scripts provision PostgreSQL, Kafka, Zookeeper, Schema Registry, Kafka Connect, and Kafka UI so the demo stack starts in one go.
 
 Exasol is treated as an external analytical target. The supported Kafka-to-Exasol path in this repo is the official Exasol Kafka connector through BucketFS-hosted UDFs.
 
@@ -79,21 +76,7 @@ Before running the Exasol-side steps, make sure you have:
 - BucketFS published on `2580` or `2581` if you are uploading from your host machine
 - if Exasol runs in Docker, run `bash prepare_exasol_docker.sh` or `pwsh -File .\prepare_exasol_docker.ps1` so `kafka` and `schema-registry` resolve inside the Exasol container
 
-The repo is Avro-only. Start it with:
-
-```bash
-bash deploy.sh
-```
-
-```powershell
-pwsh -File .\deploy.ps1
-```
-
-If you want to reuse an existing PostgreSQL container instead of the built-in one, run:
-
-```bash
-USE_EXTERNAL_POSTGRES=true bash deploy.sh
-```
+The repo is Avro-only: Debezium publishes Avro messages and Exasol imports from `banking_avro.public.*` topics.
 
 ## Project Structure
 
@@ -108,7 +91,10 @@ USE_EXTERNAL_POSTGRES=true bash deploy.sh
 ├── kafka_connect/Dockerfile        # Custom Debezium Connect image with Avro converter jars
 ├── deploy.sh                       # Bootstrap script
 ├── deploy.ps1                      # Windows-native bootstrap script
+├── prepare_exasol_docker.sh        # Add Kafka host mappings for Dockerized Exasol
+├── prepare_exasol_docker.ps1       # Windows version of Exasol host mapping helper
 ├── demo_dashboard.py               # Streamlit demo UI for inserting transactions and showing pipeline state
+├── dashboard/Dockerfile            # Dockerized Streamlit dashboard
 ├── 01_schema.sql                   # PostgreSQL OLTP schema
 ├── 02_seed.sql                     # PostgreSQL seed data
 ├── init_replication.sh             # Debezium replication user + publication
@@ -123,26 +109,21 @@ USE_EXTERNAL_POSTGRES=true bash deploy.sh
 ├── 07_refresh_analytics_features.sql # Build CLEANSED + ANALYTICS training data
 ├── requirements.txt                # Python dependencies for model training
 ├── train_pipeline.py               # Simple fraud model training pipeline
+├── models/                         # Generated ML model output
+├── docs/assets/                    # Demo video and architecture media
 └── connectors/                     # Drop Kafka Connect plugin jars here
 ```
 
 ## Default Deployment
 
-The default path is:
+The default deployment uses the PostgreSQL container from `docker-compose.yml`.
 
-- `docker compose up -d --build`
-- `bash deploy.sh`
 - PostgreSQL is created automatically on `localhost:5432`
 - the banking schema and seed data are loaded automatically
 - Kafka, Kafka Connect, Schema Registry, and Kafka UI start in the same stack
 - Exasol imports Kafka topics through the official Exasol Kafka connector
 
-This is the recommended setup for a GitHub demo or customer showcase because it removes local database preconditions and Debezium replication surprises.
-
-Important format note:
-
-- Debezium publishes Avro only
-- Exasol imports from `banking_avro.public.*` only
+This is the recommended setup for a GitHub demo or customer showcase because it removes local database preconditions and Debezium replication surprises. Use the Quick Start commands above to launch it.
 
 ## Demo Dashboard
 
@@ -181,49 +162,6 @@ The dashboard lets you:
 
 Use it together with Kafka UI in the browser at `http://localhost:8080` so you can show the Debezium event appearing in Kafka between the PostgreSQL insert and the Exasol import.
 
-## Setup Commands
-
-Default local demo stack:
-
-```bash
-cp .env.example .env
-# edit .env
-docker compose up -d --build
-bash deploy.sh
-```
-
-```powershell
-Copy-Item .env.example .env
-# edit .env
-docker compose up -d --build
-pwsh -File .\deploy.ps1
-```
-
-Optional external PostgreSQL mode:
-
-```bash
-cp .env.example .env
-# edit the EXTERNAL_POSTGRES_* values in .env
-USE_EXTERNAL_POSTGRES=true bash deploy.sh
-```
-
-```powershell
-Copy-Item .env.example .env
-# edit the EXTERNAL_POSTGRES_* values in .env
-$env:USE_EXTERNAL_POSTGRES = 'true'
-pwsh -File .\deploy.ps1 -UseExternalPostgres
-```
-
-Official Exasol Kafka connector mode:
-
-```bash
-bash deploy.sh
-```
-
-```powershell
-pwsh -File .\deploy.ps1
-```
-
 ## Advanced External Postgres Mode
 
 If you explicitly want to reuse an existing PostgreSQL container, run:
@@ -231,6 +169,9 @@ If you explicitly want to reuse an existing PostgreSQL container, run:
 ```bash
 cp .env.example .env
 # edit the EXTERNAL_POSTGRES_* values in .env
+set -a
+. ./.env
+set +a
 USE_EXTERNAL_POSTGRES=true bash deploy.sh
 ```
 
