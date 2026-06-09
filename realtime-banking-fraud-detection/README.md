@@ -11,7 +11,7 @@ This solution is packaged as a single folder for inclusion in [`exasol-labs/indu
 
 ## Demo Video
 
-![Real-Time Banking Fraud Pipeline Demo GIF](docs/assets/realtime-banking-fraud-detection.gif)
+https://github.com/user-attachments/assets/8d707b18-a52f-4228-a635-fbca49f753c4
 
 [Watch or download the MP4 demo](docs/assets/realtime-banking-fraud-detection.mp4)
 
@@ -33,6 +33,10 @@ PostgreSQL (OLTP)
 
 - [Technical Architecture](docs/architecture-technical.md)
 - [Fraud Features Guide](docs/fraud-features-guide.md)
+
+https://github.com/user-attachments/assets/6f3f9264-cc35-4b1f-9241-ff064bb1886b
+
+
 - [Customer Demo Brief](docs/customer-demo-brief.md)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
