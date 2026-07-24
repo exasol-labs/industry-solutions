@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "2650"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES"
+      buildArchitectures = "Automatic">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Copy App to Deployment"
+               scriptText = "# Copy the signed .app into the project&apos;s Deployment directory&#10;DEPLOY_DIR=&quot;${PROJECT_DIR}/Deployment&quot;&#10;mkdir -p &quot;${DEPLOY_DIR}&quot;&#10;rm -rf &quot;${DEPLOY_DIR}/${FULL_PRODUCT_NAME}&quot;&#10;ditto &quot;${BUILT_PRODUCTS_DIR}/${FULL_PRODUCT_NAME}&quot; &quot;${DEPLOY_DIR}/${FULL_PRODUCT_NAME}&quot;&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "43125E1F2FA1C3BE0017E507"
+                     BuildableName = "Process Mining Demonstrator.app"
+                     BlueprintName = "Process Mining Demonstrator"
+                     ReferencedContainer = "container:Process Mining Demonstrator.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "43125E1F2FA1C3BE0017E507"
+               BuildableName = "Process Mining Demonstrator.app"
+               BlueprintName = "Process Mining Demonstrator"
+               ReferencedContainer = "container:Process Mining Demonstrator.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldAutocreateTestPlan = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "43125E312FA1C3BE0017E507"
+               BuildableName = "Lenticularis - Process InsightsTests.xctest"
+               BlueprintName = "Process Mining DemonstratorTests"
+               ReferencedContainer = "container:Process Mining Demonstrator.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "43125E3B2FA1C3BE0017E507"
+               BuildableName = "Lenticularis - Process InsightsUITests.xctest"
+               BlueprintName = "Process Mining DemonstratorUITests"
+               ReferencedContainer = "container:Process Mining Demonstrator.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "YES"
+      queueDebuggingEnableBacktraceRecording = "Yes">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "43125E1F2FA1C3BE0017E507"
+            BuildableName = "Process Mining Demonstrator.app"
+            BlueprintName = "Process Mining Demonstrator"
+            ReferencedContainer = "container:Process Mining Demonstrator.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "43125E1F2FA1C3BE0017E507"
+            BuildableName = "Process Mining Demonstrator.app"
+            BlueprintName = "Process Mining Demonstrator"
+            ReferencedContainer = "container:Process Mining Demonstrator.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Debug">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      customArchiveName = "Process Mining Demonstrator"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>
