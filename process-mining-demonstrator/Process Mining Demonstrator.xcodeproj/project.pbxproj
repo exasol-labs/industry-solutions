@@ -1,0 +1,663 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 110;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		43AE44D22FDB159E00D42FFE /* ExasolConnector in Frameworks */ = {isa = PBXBuildFile; productRef = 43AE44D12FDB159E00D42FFE /* ExasolConnector */; };
+		43AE45F12FE1415500D42FFE /* ExasolConnector in Frameworks */ = {isa = PBXBuildFile; productRef = 43AE45F02FE1415500D42FFE /* ExasolConnector */; };
+		43AE45F42FE141A400D42FFE /* ExasolConnector in Frameworks */ = {isa = PBXBuildFile; productRef = 43AE45F32FE141A400D42FFE /* ExasolConnector */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		43125E332FA1C3BE0017E507 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 43125E182FA1C3BE0017E507 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 43125E1F2FA1C3BE0017E507;
+			remoteInfo = "Kea - Process Insights";
+		};
+		43125E3D2FA1C3BE0017E507 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 43125E182FA1C3BE0017E507 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 43125E1F2FA1C3BE0017E507;
+			remoteInfo = "Kea - Process Insights";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		43125E202FA1C3BE0017E507 /* Process Mining Demonstrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Process Mining Demonstrator.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		43125E322FA1C3BE0017E507 /* Lenticularis - Process InsightsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lenticularis - Process InsightsTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		43125E3C2FA1C3BE0017E507 /* Lenticularis - Process InsightsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Lenticularis - Process InsightsUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		436DD1052FDB12D2007ADBB2 /* ExasolConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExasolConnection.swift; sourceTree = "<group>"; };
+		436DD1062FDB12D2007ADBB2 /* ExasolTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExasolTypes.swift; sourceTree = "<group>"; };
+		436DD1082FDB12F6007ADBB2 /* SwiftExasolConnector */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = SwiftExasolConnector; path = ../../../Custom_Packages/SwiftExasolConnector; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		43125E222FA1C3BE0017E507 /* Process Mining Demonstrator */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Process Mining Demonstrator";
+			sourceTree = "<group>";
+		};
+		43125E352FA1C3BE0017E507 /* Process Mining DemonstratorTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Process Mining DemonstratorTests";
+			sourceTree = "<group>";
+		};
+		43125E3F2FA1C3BE0017E507 /* Process Mining DemonstratorUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Process Mining DemonstratorUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		43125E1D2FA1C3BE0017E507 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				43AE45F42FE141A400D42FFE /* ExasolConnector in Frameworks */,
+				43AE45F12FE1415500D42FFE /* ExasolConnector in Frameworks */,
+				43AE44D22FDB159E00D42FFE /* ExasolConnector in Frameworks */,
+			);
+		};
+		43125E2F2FA1C3BE0017E507 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		43125E392FA1C3BE0017E507 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		43125E172FA1C3BE0017E507 = {
+			isa = PBXGroup;
+			children = (
+				43125E222FA1C3BE0017E507 /* Process Mining Demonstrator */,
+				43125E352FA1C3BE0017E507 /* Process Mining DemonstratorTests */,
+				43125E3F2FA1C3BE0017E507 /* Process Mining DemonstratorUITests */,
+				43125E212FA1C3BE0017E507 /* Products */,
+				436DD1042FDB12D1007ADBB2 /* Frameworks */,
+			);
+			sourceTree = "<group>";
+		};
+		43125E212FA1C3BE0017E507 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				43125E202FA1C3BE0017E507 /* Process Mining Demonstrator.app */,
+				43125E322FA1C3BE0017E507 /* Lenticularis - Process InsightsTests.xctest */,
+				43125E3C2FA1C3BE0017E507 /* Lenticularis - Process InsightsUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		436DD1042FDB12D1007ADBB2 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				436DD1082FDB12F6007ADBB2 /* SwiftExasolConnector */,
+				436DD1072FDB12D2007ADBB2 /* ExasolConnector */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		436DD1072FDB12D2007ADBB2 /* ExasolConnector */ = {
+			isa = PBXGroup;
+			children = (
+				436DD1052FDB12D2007ADBB2 /* ExasolConnection.swift */,
+				436DD1062FDB12D2007ADBB2 /* ExasolTypes.swift */,
+			);
+			name = ExasolConnector;
+			path = ../../../Custom_Packages/SwiftExasolConnector/Sources/ExasolConnector;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		43125E1F2FA1C3BE0017E507 /* Lenticularis - Process Insights */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 43125E462FA1C3BE0017E507 /* Build configuration list for PBXNativeTarget "Lenticularis - Process Insights" */;
+			buildPhases = (
+				43125E1C2FA1C3BE0017E507 /* Sources */,
+				43125E1D2FA1C3BE0017E507 /* Frameworks */,
+				43125E1E2FA1C3BE0017E507 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				43125E222FA1C3BE0017E507 /* Process Mining Demonstrator */,
+			);
+			name = "Lenticularis - Process Insights";
+			packageProductDependencies = (
+				43AE44D12FDB159E00D42FFE /* ExasolConnector */,
+				43AE45F02FE1415500D42FFE /* ExasolConnector */,
+				43AE45F32FE141A400D42FFE /* ExasolConnector */,
+			);
+			productName = "Kea - Process Insights";
+			productReference = 43125E202FA1C3BE0017E507 /* Process Mining Demonstrator.app */;
+			productType = "com.apple.product-type.application";
+		};
+		43125E312FA1C3BE0017E507 /* Lenticularis - Process InsightsTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 43125E492FA1C3BE0017E507 /* Build configuration list for PBXNativeTarget "Lenticularis - Process InsightsTests" */;
+			buildPhases = (
+				43125E2E2FA1C3BE0017E507 /* Sources */,
+				43125E2F2FA1C3BE0017E507 /* Frameworks */,
+				43125E302FA1C3BE0017E507 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				43125E342FA1C3BE0017E507 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				43125E352FA1C3BE0017E507 /* Process Mining DemonstratorTests */,
+			);
+			name = "Lenticularis - Process InsightsTests";
+			productName = "Kea - Process InsightsTests";
+			productReference = 43125E322FA1C3BE0017E507 /* Lenticularis - Process InsightsTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		43125E3B2FA1C3BE0017E507 /* Lenticularis - Process InsightsUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 43125E4C2FA1C3BE0017E507 /* Build configuration list for PBXNativeTarget "Lenticularis - Process InsightsUITests" */;
+			buildPhases = (
+				43125E382FA1C3BE0017E507 /* Sources */,
+				43125E392FA1C3BE0017E507 /* Frameworks */,
+				43125E3A2FA1C3BE0017E507 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				43125E3E2FA1C3BE0017E507 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				43125E3F2FA1C3BE0017E507 /* Process Mining DemonstratorUITests */,
+			);
+			name = "Lenticularis - Process InsightsUITests";
+			productName = "Kea - Process InsightsUITests";
+			productReference = 43125E3C2FA1C3BE0017E507 /* Lenticularis - Process InsightsUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		43125E182FA1C3BE0017E507 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2640;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					43125E1F2FA1C3BE0017E507 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					43125E312FA1C3BE0017E507 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 43125E1F2FA1C3BE0017E507;
+					};
+					43125E3B2FA1C3BE0017E507 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 43125E1F2FA1C3BE0017E507;
+					};
+				};
+			};
+			buildConfigurationList = 43125E1B2FA1C3BE0017E507 /* Build configuration list for PBXProject "Process Mining Demonstrator" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 43125E172FA1C3BE0017E507;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				432B1FFC300F8D4800CACE62 /* XCLocalSwiftPackageReference "../../../Custom_Packages/SwiftExasolConnector" */,
+			);
+			preferredProjectObjectVersion = 110;
+			productRefGroup = 43125E212FA1C3BE0017E507 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				43125E1F2FA1C3BE0017E507 /* Lenticularis - Process Insights */,
+				43125E312FA1C3BE0017E507 /* Lenticularis - Process InsightsTests */,
+				43125E3B2FA1C3BE0017E507 /* Lenticularis - Process InsightsUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		43125E1E2FA1C3BE0017E507 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		43125E302FA1C3BE0017E507 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		43125E3A2FA1C3BE0017E507 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		43125E1C2FA1C3BE0017E507 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		43125E2E2FA1C3BE0017E507 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		43125E382FA1C3BE0017E507 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		43125E342FA1C3BE0017E507 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 43125E1F2FA1C3BE0017E507 /* Lenticularis - Process Insights */;
+			targetProxy = 43125E332FA1C3BE0017E507 /* PBXContainerItemProxy */;
+		};
+		43125E3E2FA1C3BE0017E507 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 43125E1F2FA1C3BE0017E507 /* Lenticularis - Process Insights */;
+			targetProxy = 43125E3D2FA1C3BE0017E507 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		43125E442FA1C3BE0017E507 /* Debug configuration for PBXProject "Process Mining Demonstrator" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		43125E452FA1C3BE0017E507 /* Release configuration for PBXProject "Process Mining Demonstrator" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		43125E472FA1C3BE0017E507 /* Debug configuration for PBXNativeTarget "Lenticularis - Process Insights" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = YES;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Process Mining Demonstrator";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.beerbohm.dirk.lenticularis---Process-Insights";
+				PRODUCT_NAME = "Process Mining Demonstrator";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		43125E482FA1C3BE0017E507 /* Release configuration for PBXNativeTarget "Lenticularis - Process Insights" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = YES;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Process Mining Demonstrator";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.beerbohm.dirk.lenticularis---Process-Insights";
+				PRODUCT_NAME = "Process Mining Demonstrator";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		43125E4A2FA1C3BE0017E507 /* Debug configuration for PBXNativeTarget "Lenticularis - Process InsightsTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.beerbohm.dirk.kea.Kea---Process-InsightsTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lenticularis - Process Insights.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Lenticularis - Process Insights";
+			};
+			name = Debug;
+		};
+		43125E4B2FA1C3BE0017E507 /* Release configuration for PBXNativeTarget "Lenticularis - Process InsightsTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.beerbohm.dirk.kea.Kea---Process-InsightsTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Lenticularis - Process Insights.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Lenticularis - Process Insights";
+			};
+			name = Release;
+		};
+		43125E4D2FA1C3BE0017E507 /* Debug configuration for PBXNativeTarget "Lenticularis - Process InsightsUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.beerbohm.dirk.kea.Kea---Process-InsightsUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Kea - Process Insights";
+			};
+			name = Debug;
+		};
+		43125E4E2FA1C3BE0017E507 /* Release configuration for PBXNativeTarget "Lenticularis - Process InsightsUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XYWM8JAXPB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.beerbohm.dirk.kea.Kea---Process-InsightsUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Kea - Process Insights";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		43125E1B2FA1C3BE0017E507 /* Build configuration list for PBXProject "Process Mining Demonstrator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43125E442FA1C3BE0017E507 /* Debug configuration for PBXProject "Process Mining Demonstrator" */,
+				43125E452FA1C3BE0017E507 /* Release configuration for PBXProject "Process Mining Demonstrator" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		43125E462FA1C3BE0017E507 /* Build configuration list for PBXNativeTarget "Lenticularis - Process Insights" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43125E472FA1C3BE0017E507 /* Debug configuration for PBXNativeTarget "Lenticularis - Process Insights" */,
+				43125E482FA1C3BE0017E507 /* Release configuration for PBXNativeTarget "Lenticularis - Process Insights" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		43125E492FA1C3BE0017E507 /* Build configuration list for PBXNativeTarget "Lenticularis - Process InsightsTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43125E4A2FA1C3BE0017E507 /* Debug configuration for PBXNativeTarget "Lenticularis - Process InsightsTests" */,
+				43125E4B2FA1C3BE0017E507 /* Release configuration for PBXNativeTarget "Lenticularis - Process InsightsTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		43125E4C2FA1C3BE0017E507 /* Build configuration list for PBXNativeTarget "Lenticularis - Process InsightsUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43125E4D2FA1C3BE0017E507 /* Debug configuration for PBXNativeTarget "Lenticularis - Process InsightsUITests" */,
+				43125E4E2FA1C3BE0017E507 /* Release configuration for PBXNativeTarget "Lenticularis - Process InsightsUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		432B1FFC300F8D4800CACE62 /* XCLocalSwiftPackageReference "../../../Custom_Packages/SwiftExasolConnector" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../../Custom_Packages/SwiftExasolConnector;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		43AE44D12FDB159E00D42FFE /* ExasolConnector */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExasolConnector;
+		};
+		43AE45F02FE1415500D42FFE /* ExasolConnector */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExasolConnector;
+		};
+		43AE45F32FE141A400D42FFE /* ExasolConnector */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExasolConnector;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 43125E182FA1C3BE0017E507 /* Project object */;
+}

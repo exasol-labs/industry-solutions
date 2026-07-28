@@ -14,6 +14,7 @@ real-time fraud detection to analytical pipelines and in-database machine learni
 
 | Solution | Industry | Description |
 | --- | --- | --- |
+| [Process Mining Demonstrator](process-mining-demonstrator/) | Cross-Industry | A native **macOS** process-mining application for **Apple Silicon** Macs. Process Mining Demonstrator connects to an Exasol database, reads a journey/event log, and renders how real cases flow through your business processes as an interactive map — with rich filtering, A/B comparison, Monte Carlo simulation, conformance checking, and optional AI-assisted documentation. |
 | [Real-Time Banking Fraud Detection](realtime-banking-fraud-detection/) | Banking & Financial Services | End-to-end banking fraud pipeline: PostgreSQL OLTP -> Kafka CDC with Debezium -> Exasol analytics -> in-database ML scoring. |
 
 <!-- SOLUTIONS:END -->
