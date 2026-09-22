@@ -221,6 +221,7 @@
     <tr><td><strong>Filtered Journeys</strong></td><td>⛃</td><td>The number of journeys matching the current filters.</td></tr>
     <tr><td><strong>Shortest Journey</strong></td><td>🐇</td><td>Minimum journey duration. Durations are formatted by magnitude: under 60 seconds as “N s”, then “N.n min”, “N.n h”, “N.n d”.</td></tr>
     <tr><td><strong>Avg Journey</strong></td><td>⏱️</td><td>Mean journey duration, same duration formatting.</td></tr>
+    <tr><td><strong>Median Journey</strong></td><td>◑</td><td>Median journey duration (the database <code>MEDIAN</code>), same formatting — the typical duration, not pulled by outliers.</td></tr>
     <tr><td><strong>Std Dev</strong></td><td>〰️</td><td>Standard deviation of the journey durations, same duration formatting.</td></tr>
     <tr><td><strong>Longest Journey</strong></td><td>🐢</td><td>Maximum journey duration, same duration formatting.</td></tr>
     <tr><td><strong>Graph Value</strong></td><td>ƒ</td><td>The sum of (step score × visits) over all scored nodes, where <em>visits</em> = max(incoming, outgoing) occurrences of that step. Shown with an explicit <strong>+</strong> or <strong>−</strong> sign. The tile is hidden entirely when no step of the project carries a score.</td></tr>
@@ -243,7 +244,7 @@
   <li>To reorder, drag a row by its <strong>≡</strong> handle onto another row.</li>
 </ol>
 
-<p>The default order is: Total Journeys, Filtered Journeys, Shortest Journey, Avg Journey, Std Dev, Longest Journey, Graph Value, Process Goodness, Process Similarity, Active Sample. Visibility is stored as <code>kpi.show.&lt;id&gt;</code> and the order as <code>kpi.order</code>.</p>
+<p>The default order is: Total Journeys, Filtered Journeys, Shortest Journey, Avg Journey, Median Journey, Std Dev, Longest Journey, Graph Value, Process Goodness, Process Similarity, Active Sample. Visibility is stored as <code>kpi.show.&lt;id&gt;</code> and the order as <code>kpi.order</code>.</p>
 
 <div class="tip"><strong>Tip</strong> The KPI settings, like all Configuration settings, are stored per user in the backend rather than in the browser. They follow you to a different browser or machine and are included in administrator backups.</div>
 

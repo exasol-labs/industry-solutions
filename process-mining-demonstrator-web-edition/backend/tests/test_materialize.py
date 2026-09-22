@@ -25,9 +25,15 @@ def test_collapse_folds_each_member_run_into_one_sigma_event():
     events = [_ev("e1", s, i) for i, s in enumerate(["A", "M1", "M2", "B", "M3"])]
     out = collapse_high_level(events, {"M1", "M2", "M3"}, "Σ")
     assert [e.step for e in out] == ["A", "Σ", "B", "Σ"]
-    # The Σ event keeps the run's FIRST event's time/step_id (M1 at index 1).
+    # The Σ event keeps the run's FIRST event's TIME (M1 at index 1). Its STEP_ID is the
+    # Σ super-step's OWN activity id (from sigma_ids), not a member's — None when omitted.
     sigma = out[1]
-    assert sigma.step_id == 1 and sigma.event_time.endswith(":01")
+    assert sigma.step_id is None and sigma.event_time.endswith(":01")
+    # When sigma_ids is supplied, every Σ event is stamped with that id.
+    stamped = collapse_high_level_multi(
+        events, [AggGroup(frozenset({"M1", "M2", "M3"}), "Σ")], {"Σ": 99}
+    )
+    assert all(e.step_id == 99 for e in stamped if e.step == "Σ")
 
 
 def test_collapse_resets_run_across_journeys():
@@ -99,14 +105,14 @@ def test_sigma_step_has_no_group_when_members_span_groups():
 
 def test_journey_rows_match_import_column_order():
     events = [SourceEvent("e1", "A", 0, "2024-01-01 00:00:00", "m1", None, "m3")]
-    rows = list(_journey_rows("proj", events))
+    rows = list(_journey_rows(1, events))
     assert len(_JOURNEY_COLUMNS) == 8
-    assert rows == [("proj", "e1", "A", 0, "2024-01-01 00:00:00", "m1", None, "m3")]
+    assert rows == [(1, "e1", "A", 0, "2024-01-01 00:00:00", "m1", None, "m3")]
 
 
 def test_fallback_values_sql_escapes_and_uses_timestamp_literal():
     events = [SourceEvent("e'1", "Pay'ment", None, "2024-01-01 00:00:00", "a,b", None, None)]
-    sql = _journeys_insert_values("pr'oj", events)
+    sql = _journeys_insert_values(1, events)
     assert "INSERT INTO JOURNEYS" in sql
     assert "TIMESTAMP '2024-01-01 00:00:00'" in sql
     assert "'e''1'" in sql and "'Pay''ment'" in sql  # single quotes doubled

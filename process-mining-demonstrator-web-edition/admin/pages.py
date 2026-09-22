@@ -263,9 +263,16 @@ details summary { cursor: pointer; font-size: 13px; color: var(--accent); paddin
   background: rgba(120,120,128,.08); font-weight: 600; }
 .prof-ov-bar .spacer { flex: 1; }
 .prof-ov-body { flex: 1; overflow-y: auto; padding: 16px 22px 22px; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin: 8px 0 4px; }
+/* The admin tab strip is two stacked rows, each a theme; the container carries the
+   underline so a selected tab in either row shows its accent mark directly beneath it. */
+.tabbar { border-bottom: 1px solid var(--border-soft); margin: 8px 0 4px; }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tabs + .tabs { margin-top: 2px; }
+.tabs .tabgroup { align-self: center; color: var(--muted); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; opacity: .65; padding: 0 10px 0 2px;
+  min-width: 116px; }
 .tabs button { background: none; border: none; color: var(--muted); padding: 10px 16px; font-size: 14px;
-  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .tabs button.sel { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 .tabpanel { display: none; }
 .tabpanel.sel { display: block; }
@@ -650,18 +657,26 @@ def dashboard_page(username: str, http_port: int, https_port: int) -> str:
 <div class="wrap">
   <div id="defaultWarn"></div>
 
-  <div class="tabs">
-    <button data-tab="appcontrol" class="sel" onclick="selectTab('appcontrol')">App Control</button>
-    <button data-tab="tls" onclick="selectTab('tls')">TLS / SSL</button>
-    <button data-tab="users" onclick="selectTab('users')">Users</button>
-    <button data-tab="connections" onclick="selectTab('connections')">Database Connections</button>
-    <button data-tab="ldap" onclick="selectTab('ldap')">Directory (LDAP)</button>
-    <button data-tab="logging" onclick="selectTab('logging')">Logging</button>
-    <button data-tab="backup" onclick="selectTab('backup')">Backup</button>
-    <button data-tab="customize" onclick="selectTab('customize')">Customize</button>
-    <button data-tab="reporting" onclick="selectTab('reporting')">Reporting</button>
-    <button data-tab="integration" onclick="selectTab('integration')">Integration</button>
-    <button data-tab="actions" onclick="selectTab('actions')">Actions</button>
+  <div class="tabbar">
+    <div class="tabs">
+      <span class="tabgroup">Platform &amp; Security</span>
+      <button data-tab="appcontrol" class="sel" onclick="selectTab('appcontrol')">App Control</button>
+      <button data-tab="tls" onclick="selectTab('tls')">TLS / SSL</button>
+      <button data-tab="users" onclick="selectTab('users')">Users</button>
+      <button data-tab="ldap" onclick="selectTab('ldap')">Directory (LDAP)</button>
+      <button data-tab="logging" onclick="selectTab('logging')">Logging</button>
+      <button data-tab="backup" onclick="selectTab('backup')">Backup</button>
+    </div>
+    <div class="tabs">
+      <span class="tabgroup">Data &amp; Features</span>
+      <button data-tab="connections" onclick="selectTab('connections')">Database Connections</button>
+      <button data-tab="integration" onclick="selectTab('integration')">Integration</button>
+      <button data-tab="sink" onclick="selectTab('sink')">Event Receiver</button>
+      <button data-tab="mcp" onclick="selectTab('mcp')">MCP Server</button>
+      <button data-tab="actions" onclick="selectTab('actions')">Actions</button>
+      <button data-tab="reporting" onclick="selectTab('reporting')">Reporting</button>
+      <button data-tab="customize" onclick="selectTab('customize')">Customize</button>
+    </div>
   </div>
 
   <div class="tabpanel sel" id="tab-appcontrol">
@@ -937,6 +952,19 @@ def dashboard_page(username: str, http_port: int, https_port: int) -> str:
             </p>
           </div>
         </details>
+      </div>
+
+      <div class="banner info" style="margin-top:14px">
+        <label class="row" style="font-size:13px">
+          <input type="checkbox" id="c_useInDbSampling" style="width:auto">
+          <strong>Build sample sets inside the database</strong>
+        </label>
+        <p class="subtle" style="margin:6px 0 0">
+          Creates each sample slot with a single set-based <code>INSERT … SELECT</code> that picks the
+          journeys in SQL, instead of extracting every id to the app and re-inserting them in batches.
+          Turn this on for very large logs (hundreds of millions of events), where the app-side path
+          times out; small projects can leave it off. Applies to the next sample you create.
+        </p>
       </div>
       </div><!-- /ctab-db -->
 
@@ -1359,6 +1387,83 @@ def dashboard_page(username: str, http_port: int, https_port: int) -> str:
     </p>
   </div>
   </div><!-- /tab-actions -->
+
+  <div class="tabpanel" id="tab-sink">
+  <div class="card">
+    <h2>API Server - Event Receiver</h2>
+    <p class="muted" style="margin-top:0">
+      An HTTP/HTTPS API that AI agents <strong>POST journey entries</strong> to as JSON; each
+      entry is written to the <strong>JOURNEYS</strong> table of the connection chosen when the
+      sink is defined, and unknown steps are created automatically. Sinks are defined in the
+      <strong>Integration console</strong> (kind <em>API Server - Event Receiver</em>) by developers
+      and admins; each runs on its own port from a fixed pool.
+    </p>
+    <label class="row" style="font-size:14px; cursor:pointer; gap:8px; align-items:center">
+      <input type="checkbox" id="sink_enabled" style="width:auto" onchange="toggleSinkEnabled()">
+      Enable the API Server - Event Receiver module
+    </label>
+    <div id="sink_status" class="col" style="margin-top:12px; gap:6px"></div>
+    <p class="subtle" style="margin-top:10px">
+      Enabling/disabling takes effect <strong>immediately</strong> (no restart) — while off, the
+      ports stay open but return 503. The sinks follow the same TLS mode &amp; certificate as the
+      app and this admin interface; a TLS change takes effect after
+      <strong>↻ Restart app server</strong> in the <strong>App Control</strong> tab.
+    </p>
+  </div>
+  </div><!-- /tab-sink -->
+
+  <div class="tabpanel" id="tab-mcp">
+  <div class="card">
+    <h2>MCP Server</h2>
+    <p class="muted" style="margin-top:0">
+      A read-only <strong>Model Context Protocol</strong> endpoint that lets AI clients
+      (Claude, ChatGPT, …) query your process data — <em>metrics, paths and metadata</em> — over
+      HTTP(S). Callers authenticate with an <strong>OAuth access token from your Authentik
+      server</strong>; the token is verified against Authentik&rsquo;s signing keys and mapped to a
+      Process Mining user, whose assigned database connections gate what they can see. See
+      <code>MCP-SERVER.md</code> for the full Authentik + client setup.
+    </p>
+    <label class="row" style="font-size:14px; cursor:pointer; gap:8px; align-items:center">
+      <input type="checkbox" id="mcp_enabled" style="width:auto" onchange="toggleMcpEnabled()">
+      Enable the MCP server
+    </label>
+    <div id="mcp_status" class="col" style="margin-top:12px; gap:6px"></div>
+
+    <h3 style="font-size:13px; margin:18px 0 6px">Authentik (OAuth) settings</h3>
+    <div class="field">
+      <label>Issuer URL</label>
+      <input type="text" id="mcp_issuer" placeholder="https://authentik.example.com:19443/application/o/process-mining/">
+    </div>
+    <div class="field">
+      <label>JWKS URL <span class="subtle">(leave blank to auto-discover from the issuer)</span></label>
+      <input type="text" id="mcp_jwksUri" placeholder="https://…/application/o/process-mining/jwks/">
+    </div>
+    <div class="field">
+      <label>Audience / Client ID <span class="subtle">(the token&rsquo;s <code>aud</code>; blank = skip the check)</span></label>
+      <input type="text" id="mcp_audience" placeholder="the OAuth application's Client ID">
+    </div>
+    <div class="field">
+      <label>Required group <span class="subtle">(optional — only members may connect)</span></label>
+      <input type="text" id="mcp_requiredGroup" placeholder="e.g. process-mining-users">
+    </div>
+    <div class="field">
+      <label>Username claim <span class="subtle">(the JWT claim matched to a Process Mining user)</span></label>
+      <input type="text" id="mcp_usernameClaim" placeholder="preferred_username">
+    </div>
+    <div class="row" style="align-items:center; gap:10px; margin-top:8px">
+      <button class="btn primary" onclick="saveMcpSettings()">Save settings</button>
+      <button class="btn" onclick="testMcp()">Test Authentik</button>
+      <span id="mcp_testResult" class="muted"></span>
+    </div>
+    <p class="subtle" style="margin-top:12px">
+      Enabling/disabling takes effect <strong>immediately</strong> (no restart) — while off, the
+      endpoint returns 503. The server follows the same TLS mode &amp; certificate as the app and
+      this admin interface; a TLS change takes effect after <strong>↻ Restart app server</strong>
+      in the <strong>App Control</strong> tab. The endpoint is <code>/mcp</code> on the MCP port
+      (see the status line above).
+    </p>
+  </div>
+  </div><!-- /tab-mcp -->
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -1851,6 +1956,8 @@ function selectTab(name) {
   if (name === 'backup') loadSchedule().catch(e => toast(e.message, true));
   if (name === 'integration') loadIntegration().catch(e => toast(e.message, true));
   if (name === 'actions') loadActions().catch(e => toast(e.message, true));
+  if (name === 'sink') loadSink().catch(e => toast(e.message, true));
+  if (name === 'mcp') loadMcp().catch(e => toast(e.message, true));
 }
 
 // ── AI Reporting ─────────────────────────────────────────────────────────────
@@ -2202,6 +2309,76 @@ async function toggleActionsEnabled() {
                   : 'Actions disabled — restart to apply');
     await loadActions();
   } catch (e) { toast(e.message, true); $('act_enabled').checked = !enabled; }
+}
+async function loadSink() {
+  const s = await api('/api/sink');
+  $('sink_enabled').checked = !!s.enabled;
+  const running = s.running
+    ? '<span class="pill neutral">supervisor running</span>'
+    : '<span class="pill off">supervisor not detected</span>';
+  $('sink_status').innerHTML =
+    '<div class="row" style="gap:8px; align-items:center">' + running + '</div>' +
+    '<div class="subtle">' + s.sinkCount + ' sink(s) configured · pool of ' + s.poolSize + ' port(s)</div>';
+}
+async function toggleSinkEnabled() {
+  const enabled = $('sink_enabled').checked;
+  try {
+    await api('/api/sink/enabled', { method: 'POST', body: JSON.stringify({ enabled }) });
+    toast(enabled ? 'API Server - Event Receiver enabled' : 'API Server - Event Receiver disabled');
+    await loadSink();
+  } catch (e) { toast(e.message, true); $('sink_enabled').checked = !enabled; }
+}
+
+// ── MCP server ──────────────────────────────────────────────────────────────
+async function loadMcp() {
+  const s = await api('/api/mcp');
+  $('mcp_enabled').checked = !!s.enabled;
+  const running = s.running
+    ? '<span class="pill neutral">launcher running</span>'
+    : '<span class="pill off">launcher not detected</span>';
+  $('mcp_status').innerHTML =
+    '<div class="row" style="gap:8px; align-items:center">' + running + '</div>' +
+    '<div class="subtle">Endpoint on HTTP ' + s.httpPort + ' / HTTPS ' + s.httpsPort +
+    ' at path <code>/mcp</code> (host ports are +10000 under Docker).</div>';
+  const cfg = s.settings || {};
+  $('mcp_issuer').value = cfg.issuer || '';
+  $('mcp_jwksUri').value = cfg.jwksUri || '';
+  $('mcp_audience').value = cfg.audience || '';
+  $('mcp_requiredGroup').value = cfg.requiredGroup || '';
+  $('mcp_usernameClaim').value = cfg.usernameClaim || 'preferred_username';
+}
+async function toggleMcpEnabled() {
+  const enabled = $('mcp_enabled').checked;
+  try {
+    await api('/api/mcp/enabled', { method: 'POST', body: JSON.stringify({ enabled }) });
+    toast(enabled ? 'MCP server enabled' : 'MCP server disabled');
+    await loadMcp();
+  } catch (e) { toast(e.message, true); $('mcp_enabled').checked = !enabled; }
+}
+function _mcpBody() {
+  return {
+    issuer: $('mcp_issuer').value.trim(),
+    jwksUri: $('mcp_jwksUri').value.trim(),
+    audience: $('mcp_audience').value.trim(),
+    requiredGroup: $('mcp_requiredGroup').value.trim(),
+    usernameClaim: $('mcp_usernameClaim').value.trim() || 'preferred_username',
+  };
+}
+async function saveMcpSettings() {
+  try {
+    await api('/api/mcp/settings', { method: 'POST', body: JSON.stringify(_mcpBody()) });
+    toast('MCP settings saved');
+    await loadMcp();
+  } catch (e) { toast(e.message, true); }
+}
+async function testMcp() {
+  $('mcp_testResult').textContent = 'Testing…';
+  try {
+    const r = await api('/api/mcp/test', { method: 'POST', body: JSON.stringify(_mcpBody()) });
+    $('mcp_testResult').innerHTML = r.ok
+      ? '<span style="color:var(--green)">✓ Reached Authentik — ' + r.keyCount + ' signing key(s), issuer ' + (r.issuer || '') + '</span>'
+      : '<span style="color:var(--red)">✗ ' + (r.error || 'Failed') + '</span>';
+  } catch (e) { $('mcp_testResult').innerHTML = '<span style="color:var(--red)">✗ ' + e.message + '</span>'; }
 }
 
 // ── Customize (login page background) ───────────────────────────────────────
@@ -2901,6 +3078,7 @@ function fillEditor(c) {
   $('c_llmKeyHint').textContent = c.hasLLMKey ? '(set — leave blank to keep)' : '';
   renderAssign(c.assignments);
   $('c_useMaterialized').checked = !!c.useMaterializedTransitions;
+  $('c_useInDbSampling').checked = !!c.useInDbSampling;
   renderMatStatus(c);
   $('c_matResult').textContent = '';
   $('c_rebuildBtn').disabled = !c.id;  // needs a saved connection to rebuild against
@@ -3016,6 +3194,7 @@ function editorBody() {
     llmModel: $('c_llmModel').value.trim(),
     assignments: selectedAssignments(),
     useMaterializedTransitions: $('c_useMaterialized').checked,
+    useInDbSampling: $('c_useInDbSampling').checked,
   };
   // Only send secrets when the user typed something (blank ⇒ keep existing).
   if ($('c_password').value) body.password = $('c_password').value;

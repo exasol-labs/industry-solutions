@@ -14,12 +14,20 @@ an existing schema's data.
 
 from __future__ import annotations
 
+import os
+
+# A long, one-shot in-database sample build must not be cut off by the interactive
+# 300 s socket-read timeout (pyexasol arms it once and never resets it per statement),
+# which is why the same INSERT finishes in DBVisualizer but stalls/errors here. Give the
+# build's own connection a generous read timeout (default 6 h; override with the env var).
+_SAMPLE_SOCKET_TIMEOUT = int(os.environ.get("PMW_SAMPLE_SOCKET_TIMEOUT_SECS", str(6 * 3600)))
+
 # Kept byte-for-byte in sync with ProcessRepository.ensure_notes_table (which
 # imports this constant), so a provisioned NOTES table matches what the app uses.
 NOTES_DDL = """
 CREATE TABLE IF NOT EXISTS NOTES (
     ID              VARCHAR(36)   NOT NULL,
-    PROJECT_ID      VARCHAR(100)  NOT NULL,
+    PROJECT_ID      SMALLINT     NOT NULL,
     NOTES_DATE      TIMESTAMP     NOT NULL,
     EDITED_DATE     TIMESTAMP,
     NOTE_USER       VARCHAR(200)  DEFAULT '',
@@ -39,9 +47,12 @@ CREATE TABLE IF NOT EXISTS NOTES (
 
 _PROJECTS_DDL = """
 CREATE TABLE IF NOT EXISTS PROJECTS (
-    PROJECT_ID  VARCHAR(100)  NOT NULL,
-    TITLE       VARCHAR(500)  DEFAULT '',
+    PROJECT_ID  SMALLINT      NOT NULL,
+    TITLE       VARCHAR(100)  DEFAULT '',
     DESCRIPTION VARCHAR(2000) DEFAULT '',
+    -- Human-readable short code (e.g. 'APF'); the PROJECT_ID is an allocated integer.
+    -- A leading '#' marks an aggregate DETAIL project (hidden), 'Σ' a high-level one.
+    TITLE_SHORT VARCHAR(10)   DEFAULT '',
     PRIMARY KEY (PROJECT_ID)
 )
 """
@@ -68,8 +79,14 @@ CREATE TABLE IF NOT EXISTS PROJECTS (
 #   ALTER TABLE JOURNEYS PARTITION  BY EVENT_TIME;
 _JOURNEYS_DDL = """
 CREATE TABLE IF NOT EXISTS JOURNEYS (
-    PROJECT_ID VARCHAR(100)  NOT NULL,
-    EVENT_ID   VARCHAR(200)  NOT NULL,
+    PROJECT_ID SMALLINT     NOT NULL,
+    -- EVENT_ID holds a 32-char MD5 hash (from _md5_id / the integration
+    -- extractors), so a 16-byte HASHTYPE stores it exactly. HASHTYPE is a
+    -- fixed-length binary type: joins, GROUP BY, DISTRIBUTE BY and the
+    -- transition window run on 16 bytes instead of a 32-char string, which
+    -- speeds up the whole DFG pipeline. Hex string literals convert implicitly,
+    -- so inserts and `EVENT_ID = '<hex>'` comparisons keep working unchanged.
+    EVENT_ID   HASHTYPE(16 BYTE) NOT NULL,
     STEP       VARCHAR(500)  NOT NULL,
     STEP_ID    DECIMAL(18,0),
     EVENT_TIME TIMESTAMP     NOT NULL,
@@ -82,11 +99,29 @@ CREATE TABLE IF NOT EXISTS JOURNEYS (
 )
 """
 
+# `CREATE TABLE IF NOT EXISTS` above sets the distribution on a NEW JOURNEYS, but is a
+# no-op for one that already exists — e.g. a table that predates this change or was loaded
+# by an external ETL. Provisioning enforces it with this ALTER, but only when EVENT_ID is
+# not already the distribution key (the check below reads EXA_ALL_COLUMNS), so a
+# re-provision is a genuine no-op and never triggers a needless (and costly) redistribution.
+_JOURNEYS_DISTRIBUTE_SQL = "ALTER TABLE JOURNEYS DISTRIBUTE BY EVENT_ID"
+_JOURNEYS_HAS_DIST_KEY_SQL = """
+SELECT COUNT(*) FROM EXA_ALL_COLUMNS
+WHERE COLUMN_SCHEMA = CURRENT_SCHEMA
+  AND COLUMN_TABLE = 'JOURNEYS'
+  AND COLUMN_NAME = 'EVENT_ID'
+  AND COLUMN_IS_DISTRIBUTION_KEY = TRUE
+"""
+
 # Per-step presentation and scoring, edited from the app's Step editor.
 _STEPS_DDL = """
 CREATE TABLE IF NOT EXISTS STEPS (
-    PROJECT_ID     VARCHAR(100)  NOT NULL,
+    PROJECT_ID     SMALLINT     NOT NULL,
     STEP           VARCHAR(500)  NOT NULL,
+    -- Stable integer activity id (unique per PROJECT_ID). JOURNEYS.STEP_ID carries
+    -- the same value, so the transition query groups/joins/partitions on this
+    -- integer and maps back to STEP names only in its final projection.
+    STEP_ID        DECIMAL(18,0),
     DESCRIPTION    VARCHAR(2000) DEFAULT '',
     BG_COLOR       VARCHAR(30)   DEFAULT '',
     FG_COLOR       VARCHAR(30)   DEFAULT '',
@@ -101,7 +136,7 @@ CREATE TABLE IF NOT EXISTS STEPS (
 # Human-readable titles for the three META columns, per project.
 _METAS_DDL = """
 CREATE TABLE IF NOT EXISTS METAS (
-    PROJECT_ID   VARCHAR(100) NOT NULL,
+    PROJECT_ID   SMALLINT    NOT NULL,
     META_1_TITLE VARCHAR(500) DEFAULT '',
     META_2_TITLE VARCHAR(500) DEFAULT '',
     META_3_TITLE VARCHAR(500) DEFAULT '',
@@ -199,23 +234,24 @@ async def rebuild_materialized_transitions(
             conn.execute(
                 f"""
                 CREATE OR REPLACE TABLE {stage} AS
-                SELECT PROJECT_ID, EVENT_ID, FROM_STEP, TO_STEP, FROM_TIME, TO_TIME,
+                SELECT PROJECT_ID, EVENT_ID, FROM_STEP_ID, TO_STEP_ID, FROM_TIME, TO_TIME,
                        SECONDS_BETWEEN(TO_TIME, FROM_TIME) AS DUR_SECS, SAMPLE_SET
                 FROM (
-                    -- This builds pairs for EVERY project + sample set at once, so
-                    -- the window MUST partition by (PROJECT_ID, SAMPLE_SET, EVENT_ID),
-                    -- not EVENT_ID alone: EVENT_ID is only unique within one project
-                    -- and sample set (the same id recurs across projects and in a
-                    -- sample's copy of ORIGINAL). The live query scopes this by
-                    -- filtering to one project+sample before the LEAD.
+                    -- Pairs are built on the integer STEP_ID (activity id); the read
+                    -- query maps id → STEP name. This builds pairs for EVERY project +
+                    -- sample set at once, so the window MUST partition by (PROJECT_ID,
+                    -- SAMPLE_SET, EVENT_ID), not EVENT_ID alone: EVENT_ID is only unique
+                    -- within one project and sample set (the same id recurs across
+                    -- projects and in a sample's copy of ORIGINAL). The live query scopes
+                    -- this by filtering to one project+sample before the LEAD.
                     SELECT PROJECT_ID, EVENT_ID, SAMPLE_SET,
-                           STEP       AS FROM_STEP,
+                           STEP_ID    AS FROM_STEP_ID,
                            EVENT_TIME AS FROM_TIME,
-                           LEAD(STEP)       OVER (PARTITION BY PROJECT_ID, SAMPLE_SET, EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_STEP,
+                           LEAD(STEP_ID)    OVER (PARTITION BY PROJECT_ID, SAMPLE_SET, EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_STEP_ID,
                            LEAD(EVENT_TIME) OVER (PARTITION BY PROJECT_ID, SAMPLE_SET, EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_TIME
                     FROM JOURNEYS
                 ) AS t
-                WHERE TO_STEP IS NOT NULL AND TO_TIME IS NOT NULL
+                WHERE TO_STEP_ID IS NOT NULL AND TO_TIME IS NOT NULL
                 """
             )
             # Co-locate by EVENT_ID for the semi-join. Distribution is a pure
@@ -244,6 +280,172 @@ async def rebuild_materialized_transitions(
         "rows": rows,
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+# ── In-database sampling ──────────────────────────────────────────────────────
+# Pick and materialise a sample slot entirely inside Exasol — no extract of every
+# EVENT_ID to the app and no thousands of batched INSERTs. One INSERT … SELECT
+# whose semi-join picks the journeys with pure SQL (window functions + RANDOM()).
+# RANDOM() is taken once per journey (on the grouped/distinct rows) so the pick is
+# unbiased w.r.t. journey length; temporal/path use clean proportional allocation
+# (per-bucket share, surplus trimmed in random order — no ordering bias).
+
+# The ORIGINAL-rows predicate, with an optional table alias.
+def _orig_pred(alias: str = "") -> str:
+    col = f"{alias}.SAMPLE_SET" if alias else "SAMPLE_SET"
+    return f"({col} = 'ORIGINAL' OR {col} IS NULL)"
+
+
+def _sample_chosen_ids_sql(project_id: int, count: int, method: str) -> str:
+    """Subquery selecting ``count`` EVENT_IDs from ORIGINAL by ``method``
+    ('random' | 'temporal' | 'pathDiverse')."""
+    pid = int(project_id)
+    n = int(count)
+    orig = _orig_pred()
+    if method == "random":
+        return f"""
+            SELECT EVENT_ID FROM (
+              SELECT EVENT_ID, ROW_NUMBER() OVER (ORDER BY r) AS rn
+              FROM (
+                SELECT EVENT_ID, RANDOM() AS r
+                FROM (
+                  SELECT DISTINCT EVENT_ID FROM JOURNEYS
+                  WHERE PROJECT_ID = {pid} AND {orig}
+                )
+              )
+            ) WHERE rn <= {n}
+        """
+    if method == "temporal":
+        bucket = "TO_CHAR(MIN(EVENT_TIME), 'YYYY-MM')"
+    elif method == "pathDiverse":
+        bucket = (
+            "HASH_MD5(LISTAGG(CAST(STEP_ID AS VARCHAR(20)), '>') "
+            "WITHIN GROUP (ORDER BY EVENT_TIME, STEP_ID))"
+        )
+    else:
+        raise ValueError(f"unknown sampling method: {method!r}")
+    # Proportional across buckets (calendar month, or journey variant), then a clean
+    # random global cap to {N}.
+    return f"""
+        WITH jr AS (
+          SELECT EVENT_ID, {bucket} AS bucket
+          FROM JOURNEYS WHERE PROJECT_ID = {pid} AND {orig}
+          GROUP BY EVENT_ID
+        ),
+        jrr AS (SELECT EVENT_ID, bucket, RANDOM() AS r FROM jr),
+        sz  AS (SELECT bucket, COUNT(*) AS cnt FROM jr GROUP BY bucket),
+        tot AS (SELECT COUNT(*) AS total FROM jr),
+        ranked AS (
+          SELECT jrr.EVENT_ID, jrr.r,
+                 ROW_NUMBER() OVER (PARTITION BY jrr.bucket ORDER BY jrr.r) AS rn_bucket,
+                 GREATEST(1, ROUND(sz.cnt / tot.total * {n})) AS share
+          FROM jrr JOIN sz ON jrr.bucket = sz.bucket CROSS JOIN tot
+        ),
+        picked AS (SELECT EVENT_ID, r FROM ranked WHERE rn_bucket <= share)
+        SELECT EVENT_ID FROM (
+          SELECT EVENT_ID, ROW_NUMBER() OVER (ORDER BY r) AS grn FROM picked
+        ) WHERE grn <= {n}
+    """
+
+
+def _sample_insert_sql(project_id: int, count: int, method: str, label: str) -> str:
+    """The single INSERT … SELECT that copies the chosen journeys' ORIGINAL rows,
+    tagged with the sample slot ``label`` (a SampleSet value, e.g. 'SAMPLE_1')."""
+    pid = int(project_id)
+    chosen = _sample_chosen_ids_sql(pid, count, method)
+    return f"""
+        INSERT INTO JOURNEYS
+            (PROJECT_ID, EVENT_ID, STEP, STEP_ID, EVENT_TIME, META_1, META_2, META_3, SAMPLE_SET)
+        SELECT j.PROJECT_ID, j.EVENT_ID, j.STEP, j.STEP_ID, j.EVENT_TIME,
+               j.META_1, j.META_2, j.META_3, '{label}'
+        FROM JOURNEYS j
+        WHERE j.PROJECT_ID = {pid} AND {_orig_pred('j')}
+          AND j.EVENT_ID IN ({chosen})
+    """
+
+
+async def build_sample_in_db(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    schema: str,
+    project_id: str,
+    count: int,
+    method: str,
+    sample_set,
+    use_tls: bool = False,
+    cert_mode: str = "verify",
+    fingerprint: str = "",
+    min_rsa_bits: int = 2048,
+) -> dict:
+    """(Re)build one sample slot for ``project_id`` inside ``schema`` with no app
+    round-trip: DELETE the slot, then one INSERT … SELECT that picks ``count``
+    journeys from ORIGINAL by ``method`` and copies their rows under the slot label.
+
+    Runs on its own connection with the statement timeout lifted (the whole point —
+    a set-based build survives where thousands of batched INSERTs time out).
+    Returns ``{"ok", "error", "journeys"}`` (journeys = distinct EVENT_IDs written).
+    """
+    import asyncio
+
+    from ..models import DatabaseServer
+    from .manager import DatabaseManager, friendly_error
+
+    if getattr(sample_set, "is_original", False):
+        return {"ok": False, "error": "Cannot overwrite the original data.", "journeys": 0}
+    schema = (schema or "").strip()
+    if not schema:
+        return {"ok": False, "error": "A schema name is required.", "journeys": 0}
+    label = sample_set.value
+    pid = int(project_id)
+
+    server = DatabaseServer(
+        id="sampling", host=host, port=port, username=username,
+        useTLS=use_tls, certModeRaw=cert_mode, fingerprint=fingerprint,
+        minRSAKeySizeBits=min_rsa_bits, **{"schema": ""},
+    )
+    mgr = DatabaseManager.__new__(DatabaseManager)  # no store side effects
+    ident = _quote_ident(schema)
+    insert_sql = _sample_insert_sql(pid, count, method, label)
+
+    def _run() -> int:
+        # Generous socket-read timeout so the long INSERT isn't cut off mid-run (the
+        # difference from DBVisualizer); QUERY_TIMEOUT is also lifted below.
+        conn = mgr._open(server, password, socket_timeout=_SAMPLE_SOCKET_TIMEOUT)
+        try:
+            conn.execute(f"OPEN SCHEMA {ident}")
+            try:
+                conn.execute("ALTER SESSION SET QUERY_TIMEOUT = 0")  # long, one-shot build
+            except Exception:  # noqa: BLE001 — not fatal if the role can't set it
+                pass
+            # One explicit transaction for the whole build: the DELETE + INSERT commit
+            # together (readers never see the slot half-empty) and there is exactly one
+            # COMMIT, instead of pyexasol's per-statement autocommit. Rolled back on error.
+            conn.set_autocommit(False)
+            try:
+                conn.execute(
+                    f"DELETE FROM JOURNEYS WHERE PROJECT_ID = {pid} AND SAMPLE_SET = '{label}'"
+                )
+                conn.execute(insert_sql)
+                written = conn.execute(
+                    f"SELECT COUNT(DISTINCT EVENT_ID) FROM JOURNEYS "
+                    f"WHERE PROJECT_ID = {pid} AND SAMPLE_SET = '{label}'"
+                ).fetchval()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            return int(written or 0)
+        finally:
+            conn.close()
+
+    try:
+        journeys = await asyncio.to_thread(_run)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": friendly_error(exc), "journeys": 0}
+    return {"ok": True, "error": None, "journeys": journeys}
 
 
 async def provision_process_mining_schema(
@@ -299,6 +501,16 @@ async def provision_process_mining_schema(
             for name, ddl in PROCESS_MINING_TABLES:
                 conn.execute(ddl)
                 created.append(name)
+            # Enforce EVENT_ID distribution on a JOURNEYS that already existed (the CREATE
+            # above skipped it). Guarded so a re-provision, an ETL-loaded table already
+            # keyed on EVENT_ID, or a metadata view we can't read never redistributes or
+            # aborts provisioning.
+            try:
+                if not conn.execute(_JOURNEYS_HAS_DIST_KEY_SQL).fetchval():
+                    conn.execute(_JOURNEYS_DISTRIBUTE_SQL)
+                    created.append("JOURNEYS distribution (EVENT_ID)")
+            except Exception:  # noqa: BLE001 — best-effort; keep schema creation green
+                pass
             conn.commit()
         finally:
             conn.close()
@@ -343,9 +555,10 @@ async def list_projects_with_counts(
     """List the projects stored in ``schema`` with, for each, the number of journeys
     (distinct EVENT_ID) and events (rows) in its ORIGINAL data.
 
-    Returns ``{"ok", "error", "projects": [{"projectId", "title", "journeys",
-    "events"}]}``. Projects present in either PROJECTS or JOURNEYS are included, so a
-    project shows even if one of the tables is missing a row for it.
+    Returns ``{"ok", "error", "projects": [{"projectId", "title", "titleShort",
+    "journeys", "events", "lastEventAt"}]}`` (``lastEventAt`` = the newest EVENT_TIME
+    as an ISO string, or null). Projects present in either PROJECTS or JOURNEYS are
+    included, so a project shows even if one of the tables is missing a row for it.
     """
     import asyncio
 
@@ -366,29 +579,43 @@ async def list_projects_with_counts(
         conn = mgr._open(server, password)
         try:
             conn.execute(f"OPEN SCHEMA {ident}")
-            titles: dict[str, str] = {}
-            try:
-                for row in conn.execute("SELECT PROJECT_ID, TITLE FROM PROJECTS").fetchall():
-                    titles[str(row[0])] = row[1] or ""
-            except Exception:  # noqa: BLE001 — PROJECTS may not exist yet
-                pass
-            aggs: dict[str, tuple[int, int]] = {}
+            titles: dict[int, tuple[str, str]] = {}  # pid → (title, title_short)
             try:
                 for row in conn.execute(
-                    "SELECT PROJECT_ID, COUNT(*), COUNT(DISTINCT EVENT_ID) "
+                    "SELECT PROJECT_ID, TITLE, TITLE_SHORT FROM PROJECTS"
+                ).fetchall():
+                    if row[0] is not None:
+                        titles[int(row[0])] = (row[1] or "", row[2] or "")
+            except Exception:  # noqa: BLE001 — PROJECTS may not exist yet
+                pass
+            # events, journeys, last-event-time (MAX(EVENT_TIME) — the newest row's
+            # timestamp; lets a caller show "last activity" without its own query).
+            aggs: dict[int, tuple[int, int, str | None]] = {}
+            try:
+                for row in conn.execute(
+                    "SELECT PROJECT_ID, COUNT(*), COUNT(DISTINCT EVENT_ID), MAX(EVENT_TIME) "
                     "FROM JOURNEYS WHERE SAMPLE_SET = 'ORIGINAL' GROUP BY PROJECT_ID"
                 ).fetchall():
-                    aggs[str(row[0])] = (int(row[1] or 0), int(row[2] or 0))
+                    if row[0] is not None:
+                        last = row[3]
+                        last_iso = (
+                            last.isoformat() if hasattr(last, "isoformat")
+                            else str(last) if last is not None else None
+                        )
+                        aggs[int(row[0])] = (int(row[1] or 0), int(row[2] or 0), last_iso)
             except Exception:  # noqa: BLE001 — JOURNEYS may not exist yet
                 pass
             out: list[dict] = []
             for pid in sorted(set(titles) | set(aggs)):
-                events, journeys = aggs.get(pid, (0, 0))
+                events, journeys, last_event = aggs.get(pid, (0, 0, None))
+                title, short = titles.get(pid, ("", ""))
                 out.append({
                     "projectId": pid,
-                    "title": titles.get(pid) or pid,
+                    "title": title or short or str(pid),
+                    "titleShort": short,
                     "journeys": journeys,
                     "events": events,
+                    "lastEventAt": last_event,
                 })
             return out
         finally:
@@ -433,11 +660,12 @@ async def delete_project(
     from .manager import DatabaseManager, friendly_error
 
     schema = (schema or "").strip()
-    project_id = (project_id or "").strip()
     if not schema:
         return {"ok": False, "error": "A schema name is required."}
-    if not project_id:
-        return {"ok": False, "error": "A project id is required."}
+    try:
+        pid_int = int(project_id)  # PROJECT_ID is a SMALLINT
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "A valid (integer) project id is required."}
 
     server = _server_for(
         schema, host=host, port=port, username=username, use_tls=use_tls,
@@ -445,8 +673,8 @@ async def delete_project(
     )
     mgr = DatabaseManager.__new__(DatabaseManager)
     ident = _quote_ident(schema)
-    # Escaped string literal for the WHERE clause (the only user-supplied value).
-    lit = "'" + project_id.replace("'", "''") + "'"
+    # PROJECT_ID is an integer column — an unquoted, int-coerced literal (injection-safe).
+    lit = str(pid_int)
 
     def _run() -> dict:
         conn = mgr._open(server, password)

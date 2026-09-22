@@ -97,7 +97,7 @@ export function createSyncState(): SyncState {
 
 export interface FlowChartProps {
   graph: ProcessGraph
-  projectId: string
+  projectId: number | string
   /** Included in the persistence key, exactly like the Swift `chartMode`. */
   chartMode: string
   metric: TransitionMetric
@@ -110,6 +110,8 @@ export interface FlowChartProps {
   notes?: ProcessNote[]
   onNodeNote?: (node: string) => void
   onEdgeNote?: (transition: ProcessTransition) => void
+  /** Open the "Meta Infos" panel for a node (lists that node's valid META values). */
+  onMetaInfo?: (node: string) => void
   /** Target-process / conformance overlay. */
   normValues?: Record<string, number> | null
   normMetric?: TransitionMetric
@@ -123,6 +125,8 @@ export interface FlowChartProps {
   readOnly?: boolean
   /** Total filtered journeys — the denominator for the 'Journey %' edge metric. */
   journeyTotal?: number
+  /** Lay the flow left-to-right (columns) instead of the default top-to-bottom. */
+  horizontal?: boolean
   /** Hover-dwell focus: resting on a node spotlights it and its edges and dims the rest,
    *  for inspecting a step's neighbourhood in a crowded map. Default on; the Individual
    *  Journey (a single, already-sparse trace) turns it off. The dwell delay is the user's
@@ -159,7 +163,7 @@ export interface FlowChartProps {
    *  to make room), so surrounding steps/groups don't move or re-layout. */
   explode?: {
     baseGraph: ProcessGraph
-    baseProjectId: string
+    baseProjectId: number | string
     baseChartMode: string
     aggregates: { sigmaStep: string; members: string[] }[]
     expanded: string[]
@@ -188,6 +192,7 @@ function FlowChartInner(props: FlowChartProps) {
     notes,
     onNodeNote,
     onEdgeNote,
+    onMetaInfo,
     normValues = null,
     normMetric = 'Count',
     showCompliance = false,
@@ -196,6 +201,7 @@ function FlowChartInner(props: FlowChartProps) {
     journeyTotal = 0,
     hoverFocus = true,
     allowTransitionTable = false,
+    horizontal = false,
   } = props
 
   const flow = useReactFlow()
@@ -215,7 +221,11 @@ function FlowChartInner(props: FlowChartProps) {
   // update instantly when it is changed in the colour wizard.
   const [activeSchema] = useSetting<EdgeColorSchema>(edgeSchemaKey(metric))
 
-  const layoutKey = projectKeys.layout(projectId, chartMode)
+  // Dragged/saved node positions are orientation-specific: the horizontal layout keeps its
+  // own set (suffix ":h") so toggling orientation reflows instead of loading the other
+  // orientation's coordinates. Vertical keeps the original key, so existing saved layouts
+  // stay valid.
+  const layoutKey = projectKeys.layout(projectId, horizontal ? `${chartMode}:h` : chartMode)
   const collapsedKey = projectKeys.collapsedGroups(projectId, chartMode)
 
   const [overrides, setOverrides] = useState<Record<string, Point>>(() =>
@@ -293,7 +303,7 @@ function FlowChartInner(props: FlowChartProps) {
   )
 
   // ── Initial collapse state (per project, per graph.startMode) ────────────
-  const appliedGroupProject = useRef<string>('')
+  const appliedGroupProject = useRef<number | string>(-1)
   useEffect(() => {
     if (allGroupNames.size === 0) return
     if (appliedGroupProject.current === projectId) return
@@ -366,6 +376,7 @@ function FlowChartInner(props: FlowChartProps) {
       toStep: e.to,
       occurrences: e.occ,
       avgSecs: e.wCount > 0 ? e.wTime / e.wCount : null,
+      medianSecs: null, // not recoverable from merged per-edge sums
       minSecs: null,
       maxSecs: null,
       stdDevSecs: null,
@@ -428,8 +439,10 @@ function FlowChartInner(props: FlowChartProps) {
   const explode = props.explode
   const layout = useMemo(() => {
     if (!explode) {
-      return computeLayout(graph, nodeH, optimisedLayout, nodeW, gLabelScale, edgeLabelScale)
+      return computeLayout(graph, nodeH, optimisedLayout, nodeW, gLabelScale, edgeLabelScale, horizontal)
     }
+    // Explode/in-place expansion seeds positions with a vertical "push-down" and is never
+    // combined with the horizontal toggle (the caller only wires horizontal on the plain map).
     // Explode seeding — keep the high-level map's positions; only the revealed members move.
     const base = computeLayout(
       explode.baseGraph, nodeH, optimisedLayout, nodeW, gLabelScale, edgeLabelScale,
@@ -488,7 +501,7 @@ function FlowChartInner(props: FlowChartProps) {
         height: Math.max(300, (ys.length ? Math.max(...ys) : 0) + nodeH),
       },
     }
-  }, [explode, graph, nodeH, nodeW, optimisedLayout, gLabelScale, edgeLabelScale])
+  }, [explode, graph, nodeH, nodeW, optimisedLayout, gLabelScale, edgeLabelScale, horizontal])
 
   const effectiveOverrides = syncState ? syncState.nodeOverrides : overrides
 
@@ -651,7 +664,7 @@ function FlowChartInner(props: FlowChartProps) {
         name,
         `step|${left.x}|${left.y}|${nodeW}|${nodeH}|${scale}|${showNodeDescriptions ? 1 : 0}|${
           hasNote ? 1 : 0
-        }|${group ?? ''}|${memberCount}|${groupCol}|${stepIdOf(step)}`,
+        }|${group ?? ''}|${memberCount}|${groupCol}|${horizontal ? 'h' : 'v'}|${stepIdOf(step)}`,
         () => ({
           id: name,
           type: 'step',
@@ -672,6 +685,7 @@ function FlowChartInner(props: FlowChartProps) {
               ? { group, memberCount, color: groupCol }
               : null,
             hasNote,
+            horizontal,
           } satisfies StepNodeData,
           draggable: true,
           zIndex: 2,
@@ -685,20 +699,26 @@ function FlowChartInner(props: FlowChartProps) {
     const groupOf = (name: string) =>
       virtualGroupOf(name) ?? graph.steps[name]?.belongsTo ?? null
 
+    // In the horizontal layout the arrow lies on its side, so its bounding box is
+    // MARKER_H wide × MARKER_W tall; a start marker sits to the node's left (pointing in),
+    // an end marker to its right (pointing away). Vertical keeps the above/below placement.
+    const markW = horizontal ? MARKER_H : MARKER_W
+    const markH = horizontal ? MARKER_W : MARKER_H
     for (const name of startNodes) {
       const pos = positions[name]
       if (!pos) continue
       const box = showGrouping ? boxByName.get(groupOf(name) ?? '') : undefined
-      const tipY = box ? box.y - 16 : pos.y - nodeH / 2 - 6
-      const p = { x: pos.x - MARKER_W / 2, y: tipY - MARKER_H }
-      emit(`start:${name}`, `start|${p.x}|${p.y}`, () => ({
+      const p = horizontal
+        ? { x: (box ? box.x - 16 : pos.x - nodeW / 2 - 6) - markW, y: pos.y - markH / 2 }
+        : { x: pos.x - markW / 2, y: (box ? box.y - 16 : pos.y - nodeH / 2 - 6) - markH }
+      emit(`start:${name}`, `start|${p.x}|${p.y}|${horizontal ? 'h' : 'v'}`, () => ({
         id: `start:${name}`,
         type: 'marker',
         position: p,
-        measured: { width: MARKER_W, height: MARKER_H },
-        initialWidth: MARKER_W,
-        initialHeight: MARKER_H,
-        data: { kind: 'start' },
+        measured: { width: markW, height: markH },
+        initialWidth: markW,
+        initialHeight: markH,
+        data: { kind: 'start', horizontal },
         draggable: false,
         selectable: false,
         zIndex: 1,
@@ -708,16 +728,17 @@ function FlowChartInner(props: FlowChartProps) {
       const pos = positions[name]
       if (!pos) continue
       const box = showGrouping ? boxByName.get(groupOf(name) ?? '') : undefined
-      const baseY = box ? box.y + box.height + 8 : pos.y + nodeH / 2 + 8
-      const p = { x: pos.x - MARKER_W / 2, y: baseY }
-      emit(`end:${name}`, `end|${p.x}|${p.y}`, () => ({
+      const p = horizontal
+        ? { x: box ? box.x + box.width + 8 : pos.x + nodeW / 2 + 8, y: pos.y - markH / 2 }
+        : { x: pos.x - markW / 2, y: box ? box.y + box.height + 8 : pos.y + nodeH / 2 + 8 }
+      emit(`end:${name}`, `end|${p.x}|${p.y}|${horizontal ? 'h' : 'v'}`, () => ({
         id: `end:${name}`,
         type: 'marker',
         position: p,
-        measured: { width: MARKER_W, height: MARKER_H },
-        initialWidth: MARKER_W,
-        initialHeight: MARKER_H,
-        data: { kind: 'end' },
+        measured: { width: markW, height: markH },
+        initialWidth: markW,
+        initialHeight: markH,
+        data: { kind: 'end', horizontal },
         draggable: false,
         selectable: false,
         zIndex: 1,
@@ -735,6 +756,7 @@ function FlowChartInner(props: FlowChartProps) {
     endNodes,
     graph.steps,
     groupScale,
+    horizontal,
     nodeH,
     nodeW,
     scale,
@@ -789,6 +811,7 @@ function FlowChartInner(props: FlowChartProps) {
             journeyTotal,
             hasNote: noteEdges.has(id),
             nodeH,
+            horizontal,
             edgeScale: edgeScale || 1,
             onEdgeClick:
               onEdgeTap ??
@@ -809,6 +832,7 @@ function FlowChartInner(props: FlowChartProps) {
     colorizeByWeight,
     drawGraph,
     edgeScale,
+    horizontal,
     journeyTotal,
     metric,
     nodeH,
@@ -1434,6 +1458,17 @@ function FlowChartInner(props: FlowChartProps) {
                   ⊖ Exclude from journeys
                 </button>
               </>
+            )}
+            {onMetaInfo && (
+              <button
+                className="p-item"
+                onClick={() => {
+                  onMetaInfo(menu.node as string)
+                  setMenu(null)
+                }}
+              >
+                ▤ Meta Infos
+              </button>
             )}
             {menuHasDescription && (
               <button

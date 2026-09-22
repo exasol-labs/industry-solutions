@@ -23,6 +23,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'graph.edge.colorizeByWeight': true,
   'graph.edge.colorSchema.Count': defaultSchemaFor('Count'),
   'graph.edge.colorSchema.Avg Time': defaultSchemaFor('Avg Time'),
+  'graph.edge.colorSchema.Median Time': defaultSchemaFor('Median Time'),
   'graph.edge.colorSchema.Min Time': defaultSchemaFor('Min Time'),
   'graph.edge.colorSchema.Max Time': defaultSchemaFor('Max Time'),
   'graph.edge.colorSchema.Std Dev': defaultSchemaFor('Std Dev'),
@@ -40,6 +41,8 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'graph.showTransitionTableButton': false,
   // A-Chart / B-Chart canvas view: false = flowchart, true = Sankey flow.
   'graph.sankeyView': false,
+  // Flowchart orientation: false = top-down (default), true = left-to-right (horizontal).
+  'graph.flowHorizontal': false,
   'sidebar.configGroupsExpanded': true,
   'sidebar.configFontsExpanded': true,
   'processmap.kpiExpanded': true,
@@ -196,13 +199,13 @@ export function readEdgeSchema(metric: string): EdgeColorSchema {
 
 /** Per-project JSON blobs, keyed exactly like the Swift UserDefaults entries. */
 export const projectKeys = {
-  filterGroups: (projectId: string) => `filterGroups_${projectId}`,
-  happyPaths: (projectId: string) => `happyPaths_${projectId}`,
-  norms: (projectId: string) => `norms_${projectId}`,
-  normsMetric: (projectId: string) => `norms_metric_${projectId}`,
-  llmPrompt: (projectId: string) => `llm_prompt_${projectId}`,
-  layout: (projectId: string, chartMode: string) => `layout_${projectId}_${chartMode}`,
-  collapsedGroups: (projectId: string, chartMode: string) =>
+  filterGroups: (projectId: number | string) => `filterGroups_${projectId}`,
+  happyPaths: (projectId: number | string) => `happyPaths_${projectId}`,
+  norms: (projectId: number | string) => `norms_${projectId}`,
+  normsMetric: (projectId: number | string) => `norms_metric_${projectId}`,
+  llmPrompt: (projectId: number | string) => `llm_prompt_${projectId}`,
+  layout: (projectId: number | string, chartMode: string) => `layout_${projectId}_${chartMode}`,
+  collapsedGroups: (projectId: number | string, chartMode: string) =>
     `graph.collapsedGroups_${projectId}_${chartMode}`,
 }
 

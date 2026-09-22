@@ -73,7 +73,7 @@ export function AggregateSetDialog({
   /** Each entry is a banked group's member step names. */
   groups: string[][]
   transitions: ProcessTransition[]
-  projectId: string
+  projectId: number
   connectionId: string
   projectTitle: string
   /** True when projectId is already a high-level map — we append rather than create. */

@@ -17,7 +17,7 @@ function graph(names: string[], edges: Array<[string, string, number]>): Process
   return {
     steps,
     transitions: edges.map(([fromStep, toStep, occurrences]) => ({
-      fromStep, toStep, occurrences, avgSecs: null, minSecs: null, maxSecs: null, stdDevSecs: null,
+      fromStep, toStep, occurrences, avgSecs: null, medianSecs: null, minSecs: null, maxSecs: null, stdDevSecs: null,
     })),
   }
 }

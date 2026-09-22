@@ -1,0 +1,188 @@
+<!doctype html>
+<!-- Self-contained documentation page - open this file in a WEB BROWSER. -->
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>53 - Node Context Menus</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNDggNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzNhOWJmZiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM2YjVjZjAiLz4KICAgIDwvZGVmcz4KICA8cmVjdCB4PSIyIiB5PSIyIiB3aWR0aD0iNDQiIGhlaWdodD0iNDQiIHJ4PSIxMiIgZmlsbD0idXJsKCNiZykiLz4KICA8cGF0aCBkPSJNMTUgMTYgTDMzIDE2IEwyNCAzNCBaIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMi42IgogICAgICAgIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgb3BhY2l0eT0iMC45Ii8+CiAgPGcgZmlsbD0iI2ZmZiI+CiAgICA8Y2lyY2xlIGN4PSIxNSIgY3k9IjE2IiByPSI0LjYiLz4KICAgIDxjaXJjbGUgY3g9IjMzIiBjeT0iMTYiIHI9IjQuNiIvPgogICAgPGNpcmNsZSBjeD0iMjQiIGN5PSIzNCIgcj0iNC42Ii8+CiAgPC9nPgogIDxjaXJjbGUgY3g9IjI0IiBjeT0iMTYiIHI9IjIuNCIgZmlsbD0iI2VhZjNmZiIvPgo8L3N2Zz4K">
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --ink:#1c2530; --soft:#5b6672; --line:#e5e8ec;
+  --accent:#3a6df0; --accent2:#6b5cf0; --tipbg:#eef3ff; --tipink:#2b3a63; --tipbar:#3a6df0;
+  --warnbg:#fff7ed; --warnbar:#d98324; --warnink:#5c4415; --good:#1e9e5a; --red:#d64545;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:0 20px 72px}
+header.hero{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
+  border-radius:0 0 26px 26px;padding:44px 20px 40px;margin-bottom:34px;
+  box-shadow:0 12px 30px rgba(58,109,240,.25)}
+.hero-inner{max-width:900px;margin:0 auto;padding:0 20px}
+.chip{display:inline-block;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);
+  padding:4px 12px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:.3px}
+h1{font-size:30px;line-height:1.2;margin:14px 0 8px;font-weight:800}
+.hero p{margin:0;max-width:680px;color:rgba(255,255,255,.92);font-size:16px}
+.lead{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 22px;
+  margin:0 0 30px;color:var(--soft)}
+.lead b{color:var(--ink)}
+.step{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 22px 8px;
+  margin:0 0 22px;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+.step-head{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.num{flex:0 0 auto;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+  font-weight:800;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+.step h2{font-size:20px;margin:0;font-weight:750}
+.step p.body{margin:2px 0 16px}
+.step ul{margin:0 0 12px;padding-left:20px;color:var(--soft)}
+.step ul li{margin:4px 0}
+.step code, .cap code{background:var(--bg);border-radius:4px;padding:0 5px;font-size:12.5px}
+.tip{background:var(--tipbg);border-left:4px solid var(--tipbar);color:var(--tipink);
+  border-radius:8px;padding:10px 14px;margin:0 0 16px;font-size:14.5px}
+.tip .k{font-weight:700;margin-right:6px}
+.beyond{background:var(--warnbg);border:1px solid #f0d9b8;border-left:4px solid var(--warnbar);
+  color:var(--warnink);border-radius:14px;padding:20px 22px;margin:34px 0 0}
+.beyond h2{margin:0 0 8px;font-size:19px;color:#7a4d13}
+.beyond ul{margin:8px 0 0;padding-left:20px}
+.beyond li{margin:4px 0}
+footer{color:var(--soft);font-size:13px;text-align:center;margin-top:34px}
+.cap{color:var(--soft);font-size:13px;margin:8px 2px 0}
+/* a mock of the popover node menu */
+.menu{width:260px;border:1px solid var(--line);border-radius:12px;background:var(--card);
+  box-shadow:0 12px 30px rgba(20,30,50,.16);overflow:hidden;margin:2px 0 4px}
+.menu .mt{padding:9px 13px;font-weight:750;border-bottom:1px solid var(--line);background:var(--bg)}
+.menu .mi{padding:8px 13px;border-bottom:1px solid var(--line);font-size:14px;display:flex;gap:9px;align-items:center}
+.menu .mi:last-child{border-bottom:0}
+.menu .mi .g{width:18px;text-align:center}
+.menu .mi.red{color:var(--red)} .menu .mi.yellow{color:#b8860b} .menu .mi.accent{color:var(--accent)}
+.mock{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;
+  margin:0 0 16px;box-shadow:0 6px 18px rgba(20,30,50,.08)}
+.two{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.metarow{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:9px;
+  padding:7px 11px;margin:6px 0;font-size:14px}
+.metarow .val{flex:1}
+.pill{border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--soft)}
+.inc{color:var(--good);font-weight:800} .exc{color:var(--red);font-weight:800}
+</style>
+</head>
+<body>
+<header class="hero"><div class="hero-inner">
+  <span class="chip">Work-Bench · Guide</span>
+  <h1>Node context menus</h1>
+  <p>Every node on the process map carries a right-click menu — filter the log by a step,
+     drill into an attribute, read a description, open notes, run an action or drill into a
+     sub-process. This guide walks each entry, with a bookstore example.</p>
+</div></header>
+
+<div class="wrap">
+
+  <div class="lead">Open it by <b>clicking (or right-clicking) a node</b> on the A-Chart, B-Chart,
+    A/B Comparison or Happy-Path map. The menu is headed by the step's name; which entries appear
+    depends on your role, whether the Actions feature is on, and whether the map is a high-level
+    (Σ) or drilled map.</div>
+
+  <section class="step">
+    <div class="step-head"><div class="num">1</div><h2>The menu at a glance</h2></div>
+    <p class="body">A node menu for a normal analysis map looks like this:</p>
+    <div class="menu">
+      <div class="mt">Checkout</div>
+      <div class="mi"><span class="g">✓</span> Require in journeys</div>
+      <div class="mi red"><span class="g">⊖</span> Exclude from journeys</div>
+      <div class="mi"><span class="g">▤</span> Meta Infos</div>
+      <div class="mi"><span class="g">≡</span> Show description</div>
+      <div class="mi yellow"><span class="g">✎</span> Show Notes (2)</div>
+      <div class="mi accent"><span class="g">▷</span> Actions ▸</div>
+    </div>
+    <p class="cap">Entries you don't have the role for, or that don't apply to this node, are simply
+      omitted — the menu only ever shows what you can actually do here.</p>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><div class="num">2</div><h2>Require / Exclude a step</h2></div>
+    <p class="body">The two filter entries add the step to the chart's <b>include</b> or
+      <b>exclude</b> list and reload immediately — the same lists the sidebar Filters section shows.</p>
+    <ul>
+      <li><b>✓ Require in journeys</b> — keep only journeys that pass through this step.</li>
+      <li><b>⊖ Exclude from journeys</b> — drop every journey that touches this step.</li>
+    </ul>
+    <p class="cap"><b>Example:</b> Require <code>Checkout</code> to study only orders that reached
+      checkout; then Exclude <code>Cancelled</code> to remove the ones that fell out. A step can be
+      in one list at a time; picking the opposite action moves it.</p>
+    <div class="tip"><span class="k">Reset from the sidebar.</span> Include/exclude lists clear
+      with the Filters section's <b>↺ Reset</b>, and are saved with a preset.</div>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><div class="num">3</div><h2>Meta Infos — filter by a case attribute</h2></div>
+    <p class="body"><b>▤ Meta Infos</b> opens a panel of the project's case attributes
+      (<b>META_1–3</b>, shown with their business names) in three tabs. It lists only the
+      <b>values that actually occur on this node's events</b>, each searchable, with an
+      <b>Include (⊕)</b> and an <b>Exclude (⊖)</b> toggle.</p>
+    <div class="mock">
+      <div class="two">
+        <span class="pill">Action</span><span class="pill">Client</span><span class="pill">User</span>
+      </div>
+      <div class="metarow"><span class="val">Visa</span><span class="inc">⊕</span><span>⊖</span></div>
+      <div class="metarow"><span class="val">SEPA</span><span>⊕</span><span class="exc">⊖</span></div>
+      <div class="metarow"><span class="val">Apple&nbsp;Pay</span><span>⊕</span><span>⊖</span></div>
+    </div>
+    <p class="cap"><b>Example:</b> on the <code>Payment</code> node, open the <b>Payment</b> tab,
+      <b>⊕ Include</b> <code>Visa</code> to keep only journeys that paid by Visa, or <b>⊖ Exclude</b>
+      <code>SEPA</code> to drop the slow-transfer ones. Include ⊕ keeps journeys that have an event
+      with the value; Exclude ⊖ drops journeys that have it — exactly like the step Require/Exclude,
+      but per attribute value. Multiple values per column are allowed, and the choice is saved with
+      a preset.</p>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><div class="num">4</div><h2>Show description &amp; Notes</h2></div>
+    <p class="body">Two read/annotate entries appear when there is something to show:</p>
+    <ul>
+      <li><b>≡ Show description</b> — the step's stored description text (from the step editor),
+        when it has one.</li>
+      <li><b>✎ Show Notes (n)</b> — open the threaded sticky-notes for this node; the count is
+        shown in the label. Anyone who can see a note may add a comment; only its author reclassifies
+        or deletes it.</li>
+    </ul>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><div class="num">5</div><h2>Actions (Power / Developer)</h2></div>
+    <p class="body">When an administrator has enabled the <b>Actions</b> feature and you hold the
+      Power, Developer or Admin role, the menu lists the actions authored for this project whose
+      availability matches this node. Running one shows its result (a table or a small map) in a
+      modal, always honouring the chart's current filters.</p>
+    <div class="tip"><span class="k">Node-aware.</span> An action only appears on the nodes its
+      author scoped it to, so the menu stays short and relevant.</div>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><div class="num">6</div><h2>Aggregate &amp; drill (Developer / high-level maps)</h2></div>
+    <p class="body">On richer maps the menu grows two more capabilities:</p>
+    <ul>
+      <li><b>Σ Aggregate</b> — in the aggregate designer's pick mode a developer collapses a
+        connected group of steps into a single Σ super-step (see the Aggregates guide).</li>
+      <li><b>⤵ Drill down</b> — on a Σ node of a high-level map, open the detail sub-process it
+        stands for; a drilled map carries a <b>← Return to high-level map</b> affordance.</li>
+    </ul>
+    <p class="cap">These entries only show for the roles and map types they apply to — a plain
+      analysis map for a standard user shows just the filter, meta, description and notes entries.</p>
+  </section>
+
+  <div class="beyond">
+    <h2>Good to know</h2>
+    <ul>
+      <li><b>The menu is a filter shortcut.</b> Require, Exclude and Meta Infos all write into the
+        same filter state the sidebar edits — so a node action and a sidebar change stack together,
+        and both are saved by a preset.</li>
+      <li><b>Meta Infos is node-scoped but filters whole journeys.</b> It lists the values seen on
+        <i>this</i> node, yet Include/Exclude keep or drop the entire journey that carries the value.</li>
+      <li><b>Read-only maps hide the filter entries.</b> A simulation source, for instance, shows no
+        Require/Exclude (there is nothing to reload).</li>
+      <li><b>Edges have a menu too.</b> Right-click a transition to open its notes.</li>
+    </ul>
+  </div>
+
+  <footer>Process Mining Demonstrator · Work-Bench — Node context menus</footer>
+</div>
+</body></html>

@@ -168,6 +168,10 @@ export function DetailPane({
               <JourneyKpiStrip />
             ) : (
               <KpiStrip
+                // The Active-Sample tile reads the side's data source; the B-Chart is
+                // side 'b' (every other single view mirrors side 'a'). Without this the
+                // B-Chart showed A's sample and only refreshed when A's sample changed.
+                side={mode === 'B-Chart' ? 'b' : 'a'}
                 graph={store.processGraph}
                 journeyCount={store.journeyCount}
                 durations={store.durations}

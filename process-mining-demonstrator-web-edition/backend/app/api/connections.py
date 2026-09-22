@@ -32,20 +32,52 @@ def _request_user(request: Request) -> str | None:
 def list_connections(request: Request) -> list[dict]:
     """Connections assigned to the signed-in user (secrets stripped)."""
     user = _request_user(request)
-    # Aggregate-bearing (host, schema) locations, by role. A connection is marked when its
-    # schema holds an aggregate output (high-level or detail); it is *hideable* only when it
-    # holds detail(s) and is neither a source nor a high-level connection — mirroring "a
-    # high-level map is always visible; details may be hidden".
-    loc = security_store.aggregate_locations()
-    keep = loc["source"] | loc["high"]
+    # The exact connections chosen for each aggregate role. A connection is marked when it
+    # IS an aggregate output (high-level or detail); it is *hideable* only when it is a
+    # detail target and is neither a source nor a high-level connection — mirroring "a
+    # high-level map is always visible; details may be hidden". Matching is by connection
+    # id (not host/schema), so a normal connection to the same database/schema as a detail
+    # project is never wrongly hidden.
+    roles = security_store.aggregate_connection_roles()
+    keep = roles["source"] | roles["high"]
     out: list[dict] = []
     for c in security_store.connections_for_user(user):
         d = c.user_public()
-        here = ((c.host or "").strip().lower(), (c.schema or "").strip().lower())
-        d["hasAggregates"] = here in loc["high"] or here in loc["detail"]
-        d["aggregateDetailOnly"] = here in loc["detail"] and here not in keep
+        d["hasAggregates"] = c.id in roles["high"] or c.id in roles["detail"]
+        d["aggregateDetailOnly"] = c.id in roles["detail"] and c.id not in keep
         out.append(d)
     return out
+
+
+@router.get("/portal")
+async def portal_processes(request: Request) -> dict:
+    """Every process (project) available to the signed-in user, grouped by the connection
+    it lives in — powers the end-user launch page (/home). Assignment is the gate (exactly
+    like /connect), so a plain user sees only their assigned connections. Fully
+    failure-tolerant: a connection whose schema can't be read yields an ``error`` on that
+    group, never a 500."""
+    from ..db.schema_ddl import list_projects_with_counts
+
+    user = _request_user(request)
+    groups: list[dict] = []
+    for c in security_store.connections_for_user(user):
+        group = {"id": c.id, "name": c.name, "schema": c.schema, "projects": [], "error": None}
+        conn = security_store.get_connection(c.id, with_secrets=True)
+        if conn is None:
+            group["error"] = "Connection not found."
+            groups.append(group)
+            continue
+        result = await list_projects_with_counts(
+            host=conn.host, port=conn.port, username=conn.username, password=conn.password,
+            schema=conn.schema, use_tls=conn.use_tls, cert_mode=conn.cert_mode,
+            fingerprint=conn.fingerprint, min_rsa_bits=conn.min_rsa_bits,
+        )
+        if result.get("ok"):
+            group["projects"] = result.get("projects", [])
+        else:
+            group["error"] = result.get("error") or "Could not read the database."
+        groups.append(group)
+    return {"connections": groups}
 
 
 @router.post("/connections/{conn_id}/connect", response_model=ConnectionStatus)
@@ -214,7 +246,7 @@ async def delete_managed_connection(conn_id: str, request: Request) -> dict:
 
 
 class ProjectDeleteBody(BaseModel):
-    projectId: str = Field(min_length=1, max_length=100)
+    projectId: int  # PROJECT_ID is a SMALLINT
 
 
 def _managed_connection_secrets(conn_id: str, request: Request):

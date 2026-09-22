@@ -9,6 +9,7 @@ const edge = (fromStep: string, toStep: string): ProcessTransition => ({
   toStep,
   occurrences: 1,
   avgSecs: null,
+  medianSecs: null,
   minSecs: null,
   maxSecs: null,
   stdDevSecs: null,

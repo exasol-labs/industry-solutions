@@ -317,13 +317,31 @@ Distributing by EVENT_ID co-locates all events of one journey on one cluster nod
 
 <div class="note"><strong>Note</strong> The <code>-k</code> in the example curl skips TLS verification and exists only for installations still using a self-signed certificate. Remove it once you have installed a certificate your scheduler's host trusts. Also remember that the port in the example is the <em>admin</em> port (HTTPS 8453 / HTTP 8090 by default, overridable with <code>PMW_ADMIN_HTTPS_PORT</code> / <code>PMW_ADMIN_PORT</code>), not the application's.</div>
 
-<h2 id="ldap">14.7 Directory (LDAP)</h2>
+<h2 id="conn-indb-sampling">14.7 In-database sampling</h2>
+
+<p>Alongside pre-materialized transitions, the Database sub-tab carries a second per-connection performance option for very large logs: the checkbox <b>Build sample sets inside the database</b>. It changes <em>how</em> a sample set (Sample&nbsp;1&ndash;3) is created &mdash; not what the sampling methods do &mdash; and, like the materialized-transitions flag, it is off by default and only exposed in the admin connection editor.</p>
+
+<p>With the flag <b>off</b> (the default), creating a sample uses the ordinary path: the application reads the candidate journey ids for the chosen method out of the database, picks the sample in Python, and re-inserts the chosen journeys in batches. This is fine for small and mid-sized logs. On a very large log &mdash; on the order of hundreds of millions of events &mdash; extracting every journey id to the application and re-inserting in batches is slow enough to time out.</p>
+
+<p>With the flag <b>on</b>, the whole sample is built <b>inside Exasol</b>: a single set-based <code>INSERT &hellip; SELECT</code> picks the journeys with pure SQL and writes the sample rows in one statement, with nothing extracted to the application. All three methods are supported and produce statistically equivalent results:</p>
+
+<ul>
+<li><b>Random</b> &mdash; a uniform sample over journeys (each journey drawn once, independent of its length).</li>
+<li><b>Temporal</b> &mdash; proportional across calendar-month buckets of the journey start time.</li>
+<li><b>Path-diverse</b> &mdash; proportional across distinct journey variants (the ordered step sequence).</li>
+</ul>
+
+<p>The temporal and path-diverse methods use a <b>clean proportional allocation</b>: each bucket gets its share, and when the shares sum to more than the requested count the surplus is trimmed at random across all buckets, so no month or variant is favoured. The build runs on its own database connection with the statement timeout lifted, so a large one-shot write is not cut off mid-run.</p>
+
+<div class="note"><strong>Note</strong> This flag only affects <em>sample creation</em>. Existing samples, the sampling methods offered in the app, and everything downstream are unchanged. Turn it on for the connection that holds the very large log; leave it off elsewhere &mdash; small projects gain nothing and keep the simpler app-side path. Which path a given <em>Create sample</em> took is recorded in the admin Logging tab under operation <code>sampling</code> (<code>in-database</code> vs <code>app-side</code>, with the journey count and seconds), which is the quickest way to confirm the flag is taking effect.</div>
+
+<h2 id="ldap">14.8 Directory (LDAP)</h2>
 
 <p>The Directory tab lets the <em>main application</em> accept sign-ins from an LDAP directory using a search-and-bind flow. Its header states the merge model: &ldquo;Directory users are created here automatically on first login as plain, enabled users &mdash; grant them a role or database connections like any other user. Local accounts always keep working.&rdquo;</p>
 
 <figure data-fig="admin-06-directory-ldap"><figcaption>The Directory (LDAP) tab: server settings, the service account and the two test tools.</figcaption></figure>
 
-<h3 id="ldap-enable">14.7.1 Enabling directory sign-in</h3>
+<h3 id="ldap-enable">14.8.1 Enabling directory sign-in</h3>
 
 <p>Three checkboxes sit in the top banner:</p>
 
@@ -338,7 +356,7 @@ Distributing by EVENT_ID co-locates all events of one journey on one cluster nod
 
 <div class="warn"><strong>Warning</strong> The administrator role is never granted by the directory. Group membership, directory attributes and organisational units confer nothing; every role is granted explicitly in the Users tab. Keep at least one <em>local</em> administrator account &mdash; it is your break-glass access if the directory becomes unreachable.</div>
 
-<h3 id="ldap-server">14.7.2 Server settings</h3>
+<h3 id="ldap-server">14.8.2 Server settings</h3>
 
 <table>
 <thead><tr><th>Field</th><th>Default / placeholder</th><th>Notes</th></tr></thead>
@@ -352,7 +370,7 @@ Distributing by EVENT_ID co-locates all events of one journey on one cluster nod
 
 <p>The tab notes that for a laboratory you may use a plain <code>ldap://</code> URI with StartTLS off &mdash; in which case the password travels in the clear. Do not do this on a production network.</p>
 
-<h3 id="ldap-search">14.7.3 Service account and search</h3>
+<h3 id="ldap-search">14.8.3 Service account and search</h3>
 
 <table>
 <thead><tr><th>Field</th><th>Default / placeholder</th><th>Notes</th></tr></thead>
@@ -367,7 +385,7 @@ Distributing by EVENT_ID co-locates all events of one journey on one cluster nod
 </tbody>
 </table>
 
-<h3 id="ldap-test">14.7.4 Configuring and testing directory sign-in</h3>
+<h3 id="ldap-test">14.8.4 Configuring and testing directory sign-in</h3>
 
 <div class="role">Requires: <b>Administrator</b></div>
 
@@ -390,7 +408,7 @@ Distributing by EVENT_ID co-locates all events of one journey on one cluster nod
 
 <div class="note"><strong>Note</strong> <b>Test server connection</b> checks the server and the service bind alone; <b>Test a user login</b> performs the full search-and-bind for one account. Use the first to diagnose network, TLS and service-account problems, and the second to diagnose Base DN, filter and attribute problems. All saves and tests are recorded in the log under operation <code>ldap</code>.</div>
 
-<h3 id="ldap-merge">14.7.5 How directory users merge with local ones</h3>
+<h3 id="ldap-merge">14.8.5 How directory users merge with local ones</h3>
 
 <p>Directory accounts are not pre-provisioned. A directory user becomes visible to you only after they have signed in successfully for the first time, at which point a local record is created automatically: a plain, enabled user with no roles and no connections. From then on the account behaves like any other in the Users tab, with these differences:</p>
 
@@ -410,7 +428,7 @@ Distributing by EVENT_ID co-locates all events of one journey on one cluster nod
 
 <div class="note"><strong>Note</strong> Once a directory is configured, both sign-in pages show a small <b>directory-server LED</b> &mdash; a green or red dot with &ldquo;Directory server available&rdquo; or &ldquo;Directory server unavailable&rdquo;. It comes from a cached probe with a 20-second lifetime and never delays the page. A red dot before anyone has even typed a password usually points at the network or the service account rather than at the user.</div>
 
-<h2 id="conn-checklist">14.8 Operational checklist</h2>
+<h2 id="conn-checklist">14.9 Operational checklist</h2>
 
 <table>
 <thead><tr><th>Situation</th><th>What to do</th></tr></thead>

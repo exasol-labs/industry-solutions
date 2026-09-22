@@ -46,6 +46,11 @@ from app.config import (  # noqa: E402
     ACTIONS_HTTPS_PORT,
     ACTIONS_PID_PATH,
     ACTIONS_PORT,
+    SINK_PID_PATH,
+    SINK_POOL_SIZE,
+    MCP_HTTPS_PORT,
+    MCP_PID_PATH,
+    MCP_PORT,
 )
 from app import licensing  # noqa: E402
 from app import log_events as logx  # noqa: E402
@@ -1692,6 +1697,14 @@ def api_restart(user: User = Depends(require_admin)):
             os.kill(actions_pid, signal.SIGHUP)
         except (ValueError, OSError):
             actions_pid = None
+    # The API Server - Event Receiver supervisor, best-effort — rebinds all sink listeners.
+    sink_pid: int | None = None
+    if SINK_PID_PATH.exists():
+        try:
+            sink_pid = int(SINK_PID_PATH.read_text().strip())
+            os.kill(sink_pid, signal.SIGHUP)
+        except (ValueError, OSError):
+            sink_pid = None
     # Restart the admin launcher too, best-effort: signalling our own launcher tears
     # down this very listener, so don't fail the request if the response races it.
     admin_pid: int | None = None
@@ -1706,6 +1719,7 @@ def api_restart(user: User = Depends(require_admin)):
         "pid": gui_pid,
         "integrationPid": integration_pid,
         "actionsPid": actions_pid,
+        "sinkPid": sink_pid,
         "adminPid": admin_pid,
     }
 
@@ -1771,6 +1785,113 @@ def api_set_actions_enabled(
     return {"ok": True, "enabled": store.actions_enabled}
 
 
+class SinkEnabledBody(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/sink")
+def api_sink_status(user: User = Depends(require_admin)):
+    """State of the API Server - Event Receiver module: whether it's enabled, the size of the
+    port pool, how many sinks are configured, and whether the supervisor is running."""
+    return {
+        "enabled": store.sink_enabled,
+        "poolSize": SINK_POOL_SIZE,
+        "sinkCount": len(store.list_all_sinks()),
+        "running": SINK_PID_PATH.exists(),
+    }
+
+
+@app.post("/api/sink/enabled")
+def api_set_sink_enabled(body: SinkEnabledBody, user: User = Depends(require_admin)):
+    store.set_sink_enabled(body.enabled)
+    logx.usage(
+        f"admin {user.username} {'enabled' if body.enabled else 'disabled'} "
+        f"the API Server - Event Receiver module",
+        username=user.username, operation="config",
+    )
+    return {"ok": True, "enabled": store.sink_enabled}
+
+
+# ── API: MCP server ───────────────────────────────────────────────────────────
+
+
+class McpEnabledBody(BaseModel):
+    enabled: bool
+
+
+class McpSettingsBody(BaseModel):
+    issuer: str = ""
+    jwksUri: str = ""
+    audience: str = ""
+    requiredGroup: str = ""
+    usernameClaim: str = "preferred_username"
+
+
+@app.get("/api/mcp")
+def api_mcp_status(user: User = Depends(require_admin)):
+    """State of the MCP query server: whether it's enabled, its ports, whether its
+    launcher is running (best-effort from the PID file), and its OAuth/Authentik
+    settings (no secrets are stored — offline JWKS validation needs only public values)."""
+    return {
+        "enabled": store.mcp_enabled,
+        "httpPort": MCP_PORT,
+        "httpsPort": MCP_HTTPS_PORT,
+        "running": MCP_PID_PATH.exists(),
+        "settings": store.mcp_settings(),
+    }
+
+
+@app.post("/api/mcp/enabled")
+def api_set_mcp_enabled(body: McpEnabledBody, user: User = Depends(require_admin)):
+    store.set_mcp_enabled(body.enabled)
+    logx.usage(
+        f"admin {user.username} {'enabled' if body.enabled else 'disabled'} the MCP server",
+        username=user.username, operation="config",
+    )
+    return {"ok": True, "enabled": store.mcp_enabled}
+
+
+@app.post("/api/mcp/settings")
+def api_set_mcp_settings(body: McpSettingsBody, user: User = Depends(require_admin)):
+    store.set_mcp_settings(body.model_dump())
+    logx.usage(
+        f"admin {user.username} updated the MCP server settings",
+        username=user.username, operation="config",
+    )
+    return {"ok": True, "settings": store.mcp_settings()}
+
+
+@app.post("/api/mcp/test")
+async def api_test_mcp(body: McpSettingsBody, user: User = Depends(require_admin)):
+    """Validate the Authentik settings without saving: fetch the issuer's OpenID
+    discovery document and confirm a JWKS endpoint is reachable. Never leaks the raw
+    upstream error to non-admins (this route is admin-only, so full detail is fine)."""
+    import httpx
+
+    issuer = (body.issuer or "").rstrip("/")
+    if not issuer:
+        return {"ok": False, "error": "Enter the Authentik issuer URL first."}
+    disco = f"{issuer}/.well-known/openid-configuration"
+    try:
+        async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
+            r = await client.get(disco)
+            r.raise_for_status()
+            meta = r.json()
+            jwks_uri = body.jwksUri or meta.get("jwks_uri", "")
+            jr = await client.get(jwks_uri)
+            jr.raise_for_status()
+            keys = jr.json().get("keys", [])
+        return {
+            "ok": True,
+            "issuer": meta.get("issuer", issuer),
+            "jwksUri": jwks_uri,
+            "keyCount": len(keys),
+            "authorizationEndpoint": meta.get("authorization_endpoint", ""),
+        }
+    except Exception as exc:  # noqa: BLE001 — admin-only route, detail is helpful
+        return {"ok": False, "error": f"Could not reach Authentik at {disco}: {exc}"}
+
+
 # ── API: connections (admin-defined, assigned to users) ───────────────────────
 
 
@@ -1792,6 +1913,7 @@ class ConnectionBody(BaseModel):
     llmKey: str | None = None
     assignments: list[str] = []
     useMaterializedTransitions: bool = False
+    useInDbSampling: bool = False
 
     model_config = {"populate_by_name": True}
 
@@ -1834,6 +1956,7 @@ def _connection_payload(body: ConnectionBody) -> dict:
         "llmModel": body.llmModel,
         "assignments": body.assignments,
         "useMaterializedTransitions": body.useMaterializedTransitions,
+        "useInDbSampling": body.useInDbSampling,
     }
     # Only forward secrets that were explicitly provided (None ⇒ keep existing).
     if body.password is not None:

@@ -23,6 +23,7 @@ const tr = (fromStep: string, toStep: string, occurrences = 1): ProcessTransitio
   toStep,
   occurrences,
   avgSecs: null,
+  medianSecs: null,
   minSecs: null,
   maxSecs: null,
   stdDevSecs: null,

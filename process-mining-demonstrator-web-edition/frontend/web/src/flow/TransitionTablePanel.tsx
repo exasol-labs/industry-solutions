@@ -18,9 +18,9 @@ import {
   type ProcessTransition,
 } from '../types'
 
-type SortKey = 'from' | 'to' | 'count' | 'pct' | 'jpct' | 'avg' | 'min' | 'max' | 'std'
+type SortKey = 'from' | 'to' | 'count' | 'pct' | 'jpct' | 'avg' | 'median' | 'min' | 'max' | 'std'
 
-const NUM_KEYS: ReadonlySet<SortKey> = new Set(['count', 'pct', 'jpct', 'avg', 'min', 'max', 'std'])
+const NUM_KEYS: ReadonlySet<SortKey> = new Set(['count', 'pct', 'jpct', 'avg', 'median', 'min', 'max', 'std'])
 
 /** The sort value for a row under a given key; nulls sort to the end regardless of order. */
 function sortValue(
@@ -42,6 +42,8 @@ function sortValue(
       return journeyPercentage(t, journeyTotal)
     case 'avg':
       return t.avgSecs
+    case 'median':
+      return t.medianSecs
     case 'min':
       return t.minSecs
     case 'max':
@@ -112,7 +114,7 @@ export function TransitionTablePanel({
     const cell = (s: string) => s.replace(/[\t\r\n]+/g, ' ')
     const round2 = (n: number) => Math.round(n * 100) / 100
     const header = [
-      'From', 'To', 'Count', '% Outgoing', 'Journey %', 'Avg (s)', 'Min (s)', 'Max (s)', 'Std Dev (s)',
+      'From', 'To', 'Count', '% Outgoing', 'Journey %', 'Avg (s)', 'Median (s)', 'Min (s)', 'Max (s)', 'Std Dev (s)',
     ]
     const lines = [header.join('\t')]
     for (const t of rows) {
@@ -124,6 +126,7 @@ export function TransitionTablePanel({
           round2(outgoingPercentage(t, outgoingTotals.get(t.fromStep) ?? 0)),
           round2(journeyPercentage(t, journeyTotal)),
           t.avgSecs ?? '',
+          t.medianSecs ?? '',
           t.minSecs ?? '',
           t.maxSecs ?? '',
           t.stdDevSecs ?? '',
@@ -201,6 +204,7 @@ export function TransitionTablePanel({
               <Th k="pct" label="% Outgoing" num />
               <Th k="jpct" label="Journey %" num />
               <Th k="avg" label="Avg Time" num />
+              <Th k="median" label="Median Time" num />
               <Th k="min" label="Min Time" num />
               <Th k="max" label="Max Time" num />
               <Th k="std" label="Std Dev" num />
@@ -228,6 +232,7 @@ export function TransitionTablePanel({
                     </td>
                     <td className="num">{formatPercent(journeyPercentage(t, journeyTotal))}</td>
                     <td className="num">{time(t.avgSecs)}</td>
+                    <td className="num">{time(t.medianSecs)}</td>
                     <td className="num">{time(t.minSecs)}</td>
                     <td className="num">{time(t.maxSecs)}</td>
                     <td className="num">{time(t.stdDevSecs)}</td>

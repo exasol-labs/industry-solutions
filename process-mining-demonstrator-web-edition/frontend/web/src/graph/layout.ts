@@ -58,6 +58,8 @@ export function computeLayout(
   labelScale = 1,
   /** ≥1 — widens the between-layer gap so larger edge labels still fit clearly. */
   edgeLabelScale = 1,
+  /** Lay the layers left-to-right (columns) instead of top-to-bottom (rows). */
+  horizontal = false,
 ): GraphLayout {
   const nodes = Object.keys(graph.steps)
   if (nodes.length === 0) {
@@ -156,20 +158,40 @@ export function computeLayout(
   const vGap = V_GAP * s * Math.max(1, edgeLabelScale)
   const pad = PADDING * s
 
-  const canvasW = maxCount * nodeWidth + Math.max(maxCount - 1, 0) * hGap + 2 * pad
-  const canvasH = (maxLayer + 1) * nodeHeight + maxLayer * vGap + 2 * pad
-
-  // ── 4. Position each node centred within its layer row.
+  // Vertical: layers stack down the Y axis (rows), siblings spread across X.
+  // Horizontal: layers march along the X axis (columns), siblings spread down Y — so the
+  // between-layer gap (which must clear the edge labels) runs horizontally and the
+  // within-layer gap runs vertically.
   const positions: Record<string, Point> = {}
-  for (const [layerKey, nodesInLayer] of Object.entries(layerGroups)) {
-    const layer = Number(layerKey)
-    const y = pad + layer * (nodeHeight + vGap) + nodeHeight / 2
-    const groupW =
-      nodesInLayer.length * nodeWidth + Math.max(nodesInLayer.length - 1, 0) * hGap
-    const startX = (canvasW - groupW) / 2
-    nodesInLayer.forEach((node, i) => {
-      positions[node] = { x: startX + i * (nodeWidth + hGap) + nodeWidth / 2, y }
-    })
+  let canvasW: number
+  let canvasH: number
+  if (horizontal) {
+    canvasW = (maxLayer + 1) * nodeWidth + maxLayer * vGap + 2 * pad
+    canvasH = maxCount * nodeHeight + Math.max(maxCount - 1, 0) * hGap + 2 * pad
+    for (const [layerKey, nodesInLayer] of Object.entries(layerGroups)) {
+      const layer = Number(layerKey)
+      const x = pad + layer * (nodeWidth + vGap) + nodeWidth / 2
+      const groupH =
+        nodesInLayer.length * nodeHeight + Math.max(nodesInLayer.length - 1, 0) * hGap
+      const startY = (canvasH - groupH) / 2
+      nodesInLayer.forEach((node, i) => {
+        positions[node] = { x, y: startY + i * (nodeHeight + hGap) + nodeHeight / 2 }
+      })
+    }
+  } else {
+    canvasW = maxCount * nodeWidth + Math.max(maxCount - 1, 0) * hGap + 2 * pad
+    canvasH = (maxLayer + 1) * nodeHeight + maxLayer * vGap + 2 * pad
+    // ── 4. Position each node centred within its layer row.
+    for (const [layerKey, nodesInLayer] of Object.entries(layerGroups)) {
+      const layer = Number(layerKey)
+      const y = pad + layer * (nodeHeight + vGap) + nodeHeight / 2
+      const groupW =
+        nodesInLayer.length * nodeWidth + Math.max(nodesInLayer.length - 1, 0) * hGap
+      const startX = (canvasW - groupW) / 2
+      nodesInLayer.forEach((node, i) => {
+        positions[node] = { x: startX + i * (nodeWidth + hGap) + nodeWidth / 2, y }
+      })
+    }
   }
 
   // ── 5. Nudge overlapping group boxes apart.

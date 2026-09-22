@@ -68,7 +68,7 @@ def test_non_developer_cannot_create(backend):
     _user(store, "pat", power=True)  # power user is NOT allowed
     cid = _conn(store, assignments=["pat"])
     client = TestClient(app)
-    r = client.post(f"/api/projects/P/aggregate", json=_body(cid, ["A", "B"]), headers={"X-PMW-User": "pat"})
+    r = client.post(f"/api/projects/7/aggregate", json=_body(cid, ["A", "B"]), headers={"X-PMW-User": "pat"})
     assert r.status_code == 403
 
 
@@ -77,7 +77,7 @@ def test_developer_needs_at_least_two_members(backend):
     _user(store, "dev", developer=True)
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
-    r = client.post(f"/api/projects/P/aggregate", json=_body(cid, ["A"]), headers={"X-PMW-User": "dev"})
+    r = client.post(f"/api/projects/7/aggregate", json=_body(cid, ["A"]), headers={"X-PMW-User": "dev"})
     assert r.status_code == 400
 
 
@@ -87,7 +87,7 @@ def test_idor_unassigned_connection(backend):
     _user(store, "owner", developer=True)
     cid = _conn(store, assignments=["owner"])
     client = TestClient(app)
-    r = client.post(f"/api/projects/P/aggregate", json=_body(cid, ["A", "B"]), headers={"X-PMW-User": "dev"})
+    r = client.post(f"/api/projects/7/aggregate", json=_body(cid, ["A", "B"]), headers={"X-PMW-User": "dev"})
     assert r.status_code == 403
 
 
@@ -96,7 +96,7 @@ def test_list_aggregates_empty(backend):
     _user(store, "dev", developer=True)
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
-    r = client.get("/api/projects/P/aggregates", params={"connectionId": cid}, headers={"X-PMW-User": "dev"})
+    r = client.get("/api/projects/7/aggregates", params={"connectionId": cid}, headers={"X-PMW-User": "dev"})
     assert r.status_code == 200 and r.json()["aggregates"] == []
 
 
@@ -114,7 +114,7 @@ def test_set_create_rejects_overlapping_members(backend):
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
     body = _set_body(cid, [_group("Σ1", ["A", "B"]), _group("Σ2", ["B", "C"])])  # B in both
-    r = client.post("/api/projects/P/aggregate-set", json=body, headers={"X-PMW-User": "dev"})
+    r = client.post("/api/projects/7/aggregate-set", json=body, headers={"X-PMW-User": "dev"})
     assert r.status_code == 400 and "only one aggregate" in r.json()["detail"]
 
 
@@ -123,7 +123,7 @@ def test_set_create_needs_developer(backend):
     _user(store, "pat", power=True)
     cid = _conn(store, assignments=["pat"])
     client = TestClient(app)
-    r = client.post("/api/projects/P/aggregate-set", json=_set_body(cid, [_group("Σ1", ["A", "B"])]), headers={"X-PMW-User": "pat"})
+    r = client.post("/api/projects/7/aggregate-set", json=_set_body(cid, [_group("Σ1", ["A", "B"])]), headers={"X-PMW-User": "pat"})
     assert r.status_code == 403
 
 
@@ -133,7 +133,7 @@ def test_add_to_missing_set_is_404(backend):
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
     body = {"connectionId": cid, "aggregates": [_group("Σ1", ["A", "B"])]}
-    r = client.post("/api/projects/nope/aggregate-set/add", json=body, headers={"X-PMW-User": "dev"})
+    r = client.post("/api/projects/999/aggregate-set/add", json=body, headers={"X-PMW-User": "dev"})
     assert r.status_code == 404
 
 
@@ -155,7 +155,7 @@ def test_aggregate_set_roundtrips_in_store(backend):
     assert len(store.aggregate_set_by_source("c1", "P")["aggregates"]) == 2
 
 
-def test_aggregate_locations_group_by_role(backend):
+def test_aggregate_connection_roles_group_by_role(backend):
     _app, store = backend
     cid = _conn(store, assignments=[])  # host db.example.com, schema MINING
     store.save_aggregate_set({
@@ -164,10 +164,11 @@ def test_aggregate_locations_group_by_role(backend):
         "highLevelSchema": "MINING", "highLevelTitle": "High",
         "aggregates": [{"sigmaStep": "Σ1", "members": ["A", "B"], "detailConnectionId": cid, "detailProjectId": "d1", "detailSchema": "AGG_DETAIL", "detailTitle": "D"}],
     })
-    loc = store.aggregate_locations()
-    assert ("db.example.com", "mining") in loc["source"]  # source uses the conn's own schema
-    assert ("db.example.com", "mining") in loc["high"]
-    assert ("db.example.com", "agg_detail") in loc["detail"]
+    roles = store.aggregate_connection_roles()
+    # Matching is by the exact connection picked for each role, not by (host, schema).
+    assert cid in roles["source"]
+    assert cid in roles["high"]
+    assert cid in roles["detail"]
 
 
 def test_connection_flags_source_marked_but_not_hideable(backend):
@@ -194,15 +195,40 @@ def test_connection_flags_source_marked_but_not_hideable(backend):
 
 
 def test_aggregate_link_roundtrips_in_store(backend):
+    # PROJECT_ID is a SMALLINT: projectId/detailProjectId are ints. Guards against
+    # .strip()-ing them (which crashed link storage, so Σ nodes had no drill target).
     _app, store = backend
     store.add_aggregate_link(
-        {"connectionId": "c1", "projectId": "agg_1", "sigmaStep": "Σ", "detailConnectionId": "c1", "detailProjectId": "d1"}
+        {"connectionId": "c1", "projectId": 2, "sigmaStep": "Σ", "detailConnectionId": "c1", "detailProjectId": 3}
     )
-    got = store.aggregates_for("c1", "agg_1")
-    assert len(got) == 1 and got[0]["detailProjectId"] == "d1"
+    got = store.aggregates_for("c1", 2)
+    assert len(got) == 1 and got[0]["detailProjectId"] == 3
     # keyed by (connection, project, sigma) — a second call with the same key replaces.
     store.add_aggregate_link(
-        {"connectionId": "c1", "projectId": "agg_1", "sigmaStep": "Σ", "detailConnectionId": "c2", "detailProjectId": "d2"}
+        {"connectionId": "c1", "projectId": 2, "sigmaStep": "Σ", "detailConnectionId": "c2", "detailProjectId": 4}
     )
-    got2 = store.aggregates_for("c1", "agg_1")
-    assert len(got2) == 1 and got2[0]["detailProjectId"] == "d2"
+    got2 = store.aggregates_for("c1", 2)
+    assert len(got2) == 1 and got2[0]["detailProjectId"] == 4
+
+
+def test_aggregates_for_falls_back_to_the_set_when_links_are_missing(backend):
+    # A set saved without its per-Σ link rows (e.g. an older build) must still offer
+    # drill targets, derived from the set's aggregates.
+    _app, store = backend
+    store.save_aggregate_set({
+        "sourceConnectionId": "c1", "sourceProjectId": 1,
+        "highLevelConnectionId": "c1", "highLevelProjectId": 2,
+        "highLevelSchema": "MINING", "highLevelTitle": "High",
+        "aggregates": [
+            {"sigmaStep": "Σ1", "members": ["A", "B"], "detailConnectionId": "c1", "detailProjectId": 3, "detailSchema": "MINING", "detailTitle": "D1"},
+            {"sigmaStep": "Σ2", "members": ["C", "D"], "detailConnectionId": "c1", "detailProjectId": 4, "detailSchema": "MINING", "detailTitle": "D2"},
+        ],
+    })
+    got = store.aggregates_for("c1", 2)  # no explicit link rows exist
+    assert {g["sigmaStep"]: g["detailProjectId"] for g in got} == {"Σ1": 3, "Σ2": 4}
+    # An explicit link takes precedence over the derived fallback.
+    store.add_aggregate_link(
+        {"connectionId": "c1", "projectId": 2, "sigmaStep": "Σ1", "detailConnectionId": "c1", "detailProjectId": 9}
+    )
+    got2 = store.aggregates_for("c1", 2)
+    assert len(got2) == 1 and got2[0]["detailProjectId"] == 9

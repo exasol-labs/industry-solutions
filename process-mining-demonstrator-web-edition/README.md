@@ -1,13 +1,8 @@
-<!--
-industry: Cross-Industry
-status: demo
--->
-
 <div align="center">
 
 <img src="frontend/web/public/logo.svg" width="128" height="128">
 
-# Process Mining Demonstrator — Web Edition
+# Process Mining Demonstrator -- Web-Edition
 
 [![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Exasol|database](https://img.shields.io/badge/Exasol-database-blue.svg)](https://www.exasol.com)
@@ -15,7 +10,8 @@ status: demo
   
 
   
-A web-based, multiuser environment for Process Mining for demonstration purposes, including the main application, admin console and datasource integration.
+**A web-based, multiuser environment for Process Mining for demonstration purposes.  
+Includes main application, admin and datasource integration.**
 
 </div>
 
@@ -45,6 +41,8 @@ Four independent Python processes:
 | **Admin Interface** (`admin/`) | 8090 / 8453 | TLS/certificate management, the user allow-list, and per-user database connections |
 | **Integration Console** (`integration/`) | 8100 / 8463 | Data-source configuration; developers and admins only |
 | **Actions** (`actions/`) | 8110 / 8473 | Author business-readable node-menu actions; developers and admins only (off until an admin enables it) |
+| **API Server - Event Receiver** (`sink/`) | 8120–8129 / 8483–8492 | One HTTP/HTTPS ingest API per configured sink (a pre-exposed port pool); external agents POST journey events; off until an admin enables it |
+| **MCP Server** (`mcp/`) | 8130 / 8493 | Read-only Model Context Protocol endpoint so AI clients query metrics/paths/metadata; OAuth via Authentik; off until an admin enables it (see [MCP-SERVER.md](MCP-SERVER.md)) |
 
 ```
 Browser ──► GUI Server (:8080 / :8443) ──proxy /api──► Compute Backend (:8000) ──► Exasol
@@ -151,6 +149,26 @@ enabled in the admin. The compute backend stays internal to the container.
   build stays cheap because Docker's layer cache is the real "needs rebuilding?"
   check — untouched layers are reused, so only the affected parts rebuild.
 
+## Program License
+
+Separate from the source-code license in [`LICENSE`](LICENSE), the running
+application is gated by a **signed program license**. A license file ships with
+the repository at `data/license.json`, so a fresh install runs out of the box —
+but it is deliberately **time-bombed**: the file carries an `expires` date and an
+Ed25519 signature, and once that date passes the license is no longer valid.
+
+On startup — and continuously afterwards — the backend verifies the license. If
+it is missing, tampered with, or expired, the backend keeps serving for a short
+**grace period** (30 minutes by default, `PMW_LICENSE_GRACE_SECS`) and then
+**stops itself**. It re-reads the file every 15 seconds, so replacing the license
+cancels a pending shutdown within seconds.
+
+**New license files are committed to the repository on schedule, before the
+current one lapses** — so keeping your checkout up to date (`git pull`) keeps the
+app licensed. You can also drop a newer `data/license.json` in by hand, or upload
+one from the admin panel's **App Control** tab, at any time. The private signing
+key lives only in an offline issuer, so licenses cannot be forged.
+
 ## 🚀 The Launcher — your starting point
 
 > [!TIP]
@@ -181,6 +199,20 @@ so the same page works in every deployment.
 > If your deployment runs in **HTTPS-only** TLS mode, use the HTTPS URL
 > (`https://…:8443/launcher.html`, or `…:18443` under Docker) — the plain-HTTP
 > ports are not bound in that mode.
+
+### The end-user launch page (`/home`)
+
+Alongside the suite launcher there is a **second, authenticated launch page for end
+users**, served by the main app at **`/home`** (`http://127.0.0.1:8080/home`, or
+`…:18080/home` under Docker). It is **protected by the normal sign-in** — the same login
+panel, background and full stack (password, two-factor, passkey, idle sign-out) as the
+Work-Bench. After signing in it shows, in the same glassy launcher style, the **processes
+available to that user as tiles, grouped by connection** — each tile a project with its
+event/journey counts. Clicking a tile connects to that connection, opens the project and
+drops the user straight onto its **process map**. It's the simplest entry point for people
+who just want to open "their" process, while the full Work-Bench (`/`) stays unchanged. The
+tile data comes from `GET /api/portal`, gated by connection assignment exactly like
+connecting.
 
 ## First use
 
@@ -415,6 +447,13 @@ API keys). Use **Test connection** to check the database (and LLM) before saving
 Leaving a password or API-key field blank on an existing connection keeps the stored
 value; the backend decrypts secrets only when a user actually connects. Connection
 definitions, ownership and assignments live in `data/security.sqlite3`.
+
+Each connected user keeps one long-lived Exasol session. A network device (commonly the
+`host.docker.internal` NAT) can silently drop an **idle** socket; the backend now detects
+the dead handle on the next query, transparently **reopens and retries once**, and
+self-heals a session left disconnected by a failed reopen on the following request — so a
+refresh or a first action after idle no longer 500s with *"Unable to load data"* and forces
+a manual reconnect. A genuine SQL error is never retried.
 
 **Provisioning a process-mining schema.** Both the admin connection editor and the
 power-user editor offer **Create schema & tables** — using the entered credentials it
@@ -799,8 +838,155 @@ interval).
 
 > **Status:** the contract, ingest backends, registry, per-user status, the File
 > extractor **and the file watchdog** are in place and tested
-> (`backend/tests/test_integration_{layer,extractor,files,watchdog}.py`).
-> Next: non-file source kinds.
+> (`backend/tests/test_integration_{layer,extractor,files,watchdog}.py`). The first
+> non-file source kind — the **API Server - Event Receiver** (below) — has shipped.
+
+## API Server - Event Receiver
+
+A second data-source kind, alongside File: instead of the demonstrator *pulling* from a
+file, the **API Server - Event Receiver** opens a small HTTP/HTTPS API that an external program —
+typically an AI agent — *pushes* journey events into as they happen. Each sink writes into
+one connection's `JOURNEYS` table under one project, auto-creating any step it has never
+seen. It is a fifth surface, run by its own supervisor process (`sink/`), and is **off
+until an admin enables it** (Admin → *Event Receiver*).
+
+- **A sink per port, from a fixed pool.** Because Docker publishes ports statically, sinks
+  bind a **pre-exposed pool**: HTTP `8120–8129` and the paired HTTPS `8483–8492` (host
+  `+10000` under the default compose mapping). You pick a free port when defining the sink;
+  each sink is one port, one connection, one project code. The supervisor runs one uvicorn
+  listener per sink and **rebinds on SIGHUP**, so adding/editing/removing a sink — or a TLS
+  change — takes effect with no restart.
+- **Defining a sink** (integration console → *Sources* → ＋ → *API Server - Event Receiver*):
+  choose the destination **connection** (must have a schema), a 1–10-char **project code**
+  (`TITLE_SHORT`; created on first write), a **port** from the pool, and a **TLS**
+  preference (address agents over HTTPS or HTTP — the dropdown shows both ports per slot).
+- **Per-sink bearer token.** Only a **SHA-256 hash** is stored; the plaintext is shown
+  **once** on creation and can be **regenerated** (🔑, behind a confirmation — it
+  invalidates the old token immediately). Authentn is `Authorization: Bearer <token>`.
+- **The API.** `POST /ingest` (bearer-auth) takes one JSON object or an array of them;
+  `GET /health` is unauthenticated liveness (`{ok, enabled}` only — no identifying detail).
+  Responses: `200 {ingested, newSteps, projectId}`, `400` bad payload, `401` bad token,
+  `413` body/entry cap exceeded (2 MB / 5000 entries by default, refused before any DB
+  work), `503` module disabled, `502` destination DB unavailable (generic — the driver
+  detail with the internal DSN/user/schema is logged, never returned).
+- **Event schema.** `eventId` (the journey; reused across a run's events), `step` (a
+  `KIND:qualifier` — `SKILL:<name>`, `TOOL:<type>:<name>`, `DATABASE:<db>`,
+  `WEB:<external|internal>`, `EMAIL:…`, `FILE:…`, `APP:<name>`, `REQUEST` — each becomes a
+  node), optional `description` → **META_1** (the step's *Action* detail, ≤256 chars,
+  capped server-side), `client` → **META_2** (*Client*: Claude/ChatGPT/…), `user` →
+  **META_3** (*User*), and `eventTime` (ISO-8601; defaults to now). A per-project `METAS`
+  row titles the three columns **Action / Client / User** so the app labels them.
+- **Ready-to-run examples in nine languages.** The sink's *ingest details* popup shows the
+  live endpoint URL and a tabbed **“Send data to the endpoint”** panel — the same call in
+  **Python, CLI (curl), AI Agents (SKILL.md), C#, Rust, Go, JavaScript, TypeScript and Mojo**
+  (tabs sorted alphabetically) — with a shared **Copy** / **Download** button that acts on
+  the active tab and names the file per language (`send_events.py`, `SendEvents.cs`,
+  `send_events.mjs`, `SKILL.md`, …). Every example is filled in ready to run: the
+  **endpoint URL is editable and saved per sink** (override the auto-detected host URL with,
+  say, a reverse-proxy domain), and a **token field** (pre-filled right after create/
+  regenerate, else pasted) is embedded, and each disables self-signed-cert verification the
+  way its language expects when the endpoint is HTTPS — so nothing needs hand-editing. The
+  downloadable **SKILL.md** is one of those tabs: a self-contained instruction file an agent
+  can be handed as-is.
+- **Live monitor.** The integration console shows a node-based monitor for sinks — one lane
+  `[AI agents] → [sink :port] → [project] → [connection]` per sink — with a `/health`
+  liveness dot, destination-DB event/journey counts and last-event time, animating a lane
+  when its event count grows. Counts are cached briefly so several open consoles can't
+  churn DB connections. Backend + frontend tests in `backend/tests/test_sink.py` and the
+  `Sink*`/`useSinkMonitor` frontend specs.
+
+The write path reuses the File extractor's `SqlIngestBackend` (strict identifier
+validation + escaped literals — no injection), and the sink reuses one DB connection with
+idle-reconnect + reconnect-and-retry-once so a socket dropped after idle doesn't surface as
+a failed post.
+
+## MCP Server
+
+The **MCP Server** is the mirror image of the Event Receiver: where a sink lets an agent
+*write* journey events, the MCP server lets an AI client *read* the analysis. It is a
+[Model Context Protocol](https://modelcontextprotocol.io) endpoint — **strictly read-only**,
+with no ingest, edit or sampling tools — that answers metrics, path and metadata queries
+over HTTP(S). It is the seventh surface, on the admin port **+40** (`8130` / `8493`;
+host `18130` / `18493` under the default compose mapping), runs from `mcp/`, and is **off
+until an admin enables it** (Admin → *MCP Server*), returning `503` while off.
+
+> **OAuth-only, directory-backed.** The MCP server authenticates callers **exclusively via
+> OAuth** — it has no login of its own. You must deploy an OAuth provider such as **Authentik**
+> or **Keycloak** and configure it in the admin **MCP Server** page, with user federation from
+> **OpenLDAP** or **Active Directory**. Only Process Mining users defined in a configured
+> directory service can use the MCP server.
+
+```
+AI client ──OAuth──────────────────────▶ Authentik            client obtains an access token
+AI client ──MCP/JSON-RPC + Bearer──────▶ MCP Server (:8493/mcp)
+                                          └─ verifies the JWT offline against Authentik's JWKS (RS256)
+                                          └─ maps the username claim to a Process Mining user
+                                          └─ answers only on that user's assigned connections
+```
+
+- **Authorisation is the app's own boundary, reused.** A caller presents an OAuth access
+  token issued by **your Authentik**. The server verifies its signature against Authentik's
+  JWKS, checks issuer (and `aud`, if you configure one), optionally requires a **group**,
+  then matches the **username claim** (default `preferred_username`, case-insensitively) to
+  an *enabled* Process Mining user. That user's **assigned database connections** decide
+  what is visible — exactly the boundary the app enforces. An unknown user gets `403`, an
+  unassigned connection `403`, a bad or missing token `401` with a `WWW-Authenticate`
+  challenge so the client knows to start the OAuth flow.
+- **Eight tools.**
+
+  | Tool | Returns |
+  |---|---|
+  | `list_connections` | The database connections you may query (id, name, schema) |
+  | `list_projects` | The projects on a connection — or, with `connectionId` omitted, on **every** connection you may query; `includeCounts` adds a journey count per project |
+  | `get_metadata` | Meta-attribute titles, step names, event date range |
+  | `get_process_map` | The directly-follows map: steps (nodes) + transitions (edges) with counts and timing |
+  | `get_transition_metrics` | Per step pair: count and avg/median/min/max/stddev transition time |
+  | `get_variants` | Distinct journey paths and how often each occurs, most frequent first |
+  | `get_statistics` | Journey count, journey-duration stats, process-goodness score |
+  | `get_journey` | One case's ordered trace by case id — the only tool that returns individual events |
+  | `find_journeys` | The individual cases behind an aggregate — slowest / longest / by-step, ordered, with optional full path (the drill-down `get_statistics → find_journeys → get_journey`) |
+
+- **One filter vocabulary.** The four analytical tools take `connectionId` (string) +
+  `projectId` (integer) plus the same optional filter as the app: `sampleSet`
+  (`ORIGINAL`/`SAMPLE_1..3`), `fromDate`, `toDate` (ISO **dates** — day granularity),
+  `includedSteps` (keep journeys visiting **all** of them), `excludedSteps` (drop journeys
+  visiting **any** of them) and `meta1..3`; `get_variants` also takes `limit` (≤1000).
+  Because `includedSteps` is an AND, an either/or question needs one call per alternative.
+- **Looking up one case.** `get_journey` takes a `connectionId`, `projectId` and an
+  `eventId` and returns that journey's events in time order, with its three meta values,
+  start and end timestamps and total duration. `JOURNEYS` stores the **MD5 of the case
+  id**, never the plaintext, so the tool reuses the application's own normalisation: a
+  business id such as `FLT-000123` is hashed, a 32-char hex id is taken as already
+  hashed. Both resolve to the same journey the individual-journey view shows.
+- **Configuring it** (Admin → *MCP Server*): **Issuer URL**
+  (`https://<authentik>/application/o/<slug>/`), **JWKS URL** (blank auto-discovers from the
+  issuer), **Audience / Client ID** (blank unless you mapped an `aud` claim), **Required
+  group** (matched against the token's `groups`), **Username claim**. **Test Authentik**
+  fetches the discovery document and JWKS and reports the signing-key count — use it before
+  enabling. Both spellings of the issuer are accepted, with and without the trailing slash
+  Authentik emits.
+- **On the Authentik side**, create an OAuth2/OpenID provider (public client + PKCE for
+  interactive clients), give it an **RSA signing key** so the access token is a verifiable
+  RS256 JWT, add your client's **redirect URIs** — for Claude
+  `https://claude.ai/api/mcp/auth_callback`, plus a port-agnostic loopback pattern for
+  Claude Code — and bind an application with a slug. Enable **Dynamic Client Registration**
+  if your client registers itself rather than being given a client id. Full walkthrough in
+  [MCP-SERVER.md](MCP-SERVER.md).
+- **Behind a reverse proxy**, forward `/mcp` **without stripping the prefix**, and route
+  `/.well-known/oauth-protected-resource` (and its `…/mcp` suffix) to the same backend —
+  the `401` challenge points discovery at the **host root**, not under `/mcp`, so a proxy
+  that only routes `/mcp` breaks client registration. Send `X-Forwarded-Proto` and
+  `X-Forwarded-Host` so the advertised metadata carries the public URL. The issuer your
+  metadata advertises must be reachable **from the client**, over the public internet for a
+  hosted client — an internal hostname there is the most common cause of a connector that
+  never finishes signing in.
+- **Verifying by hand.** `GET /health` is unauthenticated (`{ok, enabled}`);
+  `GET /.well-known/oauth-protected-resource` returns the resource metadata; a `POST /mcp`
+  with no token returns `401` and with a token exercises the whole chain.
+- **Limits.** `PMW_MCP_MAX_ROWS` (default 1000) caps rows per call and
+  `PMW_MCP_JWKS_CACHE_SECS` (default 3600) how long signing keys are cached. Only the JWKS
+  **transport** skips certificate verification (Authentik is a trusted internal host); token
+  integrity is unaffected.
 
 ## Database schema
 
@@ -971,6 +1157,16 @@ The three `META_` case-level filters are searchable dropdowns: focus the field
 one or type to narrow the list. Steps sharing a `BELONGS_TO` value are wrapped in
 a dashed group box whose tint and border are tuned per theme so it stays clearly
 visible in both light and dark mode.
+
+**Node context menus.** Right-click a node on any process map for its actions: **✓ Require
+in journeys** / **⊖ Exclude from journeys** (the step include/exclude lists), **▤ Meta
+Infos**, **≡ Show description**, **✎ Show Notes**, plus **Actions**, aggregate and drill
+entries where they apply (role- and map-dependent). **Meta Infos** opens a tabbed,
+searchable panel of the case attributes (META_1–3, with their business names) listing only
+the values that occur on *that node's* events (`POST /api/projects/{id}/node-metas`); each
+value has **⊕ Include** / **⊖ Exclude** toggles that filter whole journeys exactly like the
+step Require/Exclude — per attribute value, saved with a preset. See the in-launcher guide
+*Node context menus* (`docs/53-Node-Context-Menus.html`).
 
 ## Aggregates (Σ high-level maps, developers)
 

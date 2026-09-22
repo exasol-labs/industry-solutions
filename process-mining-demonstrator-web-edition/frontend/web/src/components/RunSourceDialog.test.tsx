@@ -8,7 +8,7 @@ vi.mock('../api', () => ({
     destinationProjects: vi.fn(async () => ({
       ok: true,
       error: null,
-      projects: [{ projectId: 'RETAIL', title: 'Retail demo', journeys: 3, events: 40 }],
+      projects: [{ projectId: 1, titleShort: 'RETAIL', title: 'Retail demo', journeys: 3, events: 40 }],
     })),
     sourceCheckpoint: vi.fn(async () => ({
       byteOffset: 0, size: 0, signature: '', records: 0, updatedAt: null, lastError: null,
@@ -45,7 +45,7 @@ describe('RunSourceDialog', () => {
     })
     await renderSettled(<RunSourceDialog source={SOURCE} onClose={() => {}} onDone={() => {}} />)
 
-    fireEvent.change(screen.getByPlaceholderText(/RETAIL-DEMO/i), { target: { value: 'P1' } })
+    fireEvent.change(screen.getByPlaceholderText(/RETAIL/i), { target: { value: 'P1' } })
     fireEvent.click(screen.getByRole('button', { name: /Run extraction/i }))
 
     await waitFor(() => expect(api.runSource).toHaveBeenCalledWith('s1', 'P1', 'c1', true))
@@ -61,7 +61,7 @@ describe('RunSourceDialog', () => {
     await renderSettled(<RunSourceDialog source={SOURCE} onClose={() => {}} onDone={() => {}} />)
 
     fireEvent.change(screen.getByLabelText(/Destination connection/i), { target: { value: 'c2' } })
-    fireEvent.change(screen.getByPlaceholderText(/RETAIL-DEMO/i), { target: { value: 'P1' } })
+    fireEvent.change(screen.getByPlaceholderText(/RETAIL/i), { target: { value: 'P1' } })
     fireEvent.click(screen.getByRole('button', { name: /Run extraction/i }))
 
     await waitFor(() => expect(api.runSource).toHaveBeenCalledWith('s1', 'P1', 'c2', true))
@@ -80,7 +80,7 @@ describe('RunSourceDialog', () => {
 
     fireEvent.change(select, { target: { value: 'RETAIL' } })
     // Picking an existing project swaps the free-text input for the append warning.
-    expect(screen.queryByPlaceholderText(/RETAIL-DEMO/i)).toBeNull()
+    expect(screen.queryByPlaceholderText(/RETAIL/i)).toBeNull()
     expect(screen.getByText(/40 already stored/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Run extraction/i }))
@@ -96,7 +96,7 @@ describe('RunSourceDialog', () => {
     await renderSettled(<RunSourceDialog source={SOURCE} onClose={() => {}} onDone={() => {}} />)
 
     await waitFor(() => expect(screen.getByText(/connection refused/)).toBeTruthy())
-    fireEvent.change(screen.getByPlaceholderText(/RETAIL-DEMO/i), { target: { value: 'P1' } })
+    fireEvent.change(screen.getByPlaceholderText(/RETAIL/i), { target: { value: 'P1' } })
     fireEvent.click(screen.getByRole('button', { name: /Run extraction/i }))
     await waitFor(() => expect(api.runSource).toHaveBeenCalledWith('s1', 'P1', 'c1', true))
   })
@@ -112,7 +112,7 @@ describe('RunSourceDialog', () => {
     expect(toggle.checked).toBe(true)
 
     fireEvent.click(toggle)
-    fireEvent.change(screen.getByPlaceholderText(/RETAIL-DEMO/i), { target: { value: 'P1' } })
+    fireEvent.change(screen.getByPlaceholderText(/RETAIL/i), { target: { value: 'P1' } })
     fireEvent.click(screen.getByRole('button', { name: /Run extraction/i }))
 
     await waitFor(() => expect(api.runSource).toHaveBeenCalledWith('s1', 'P1', 'c1', false))
@@ -145,7 +145,7 @@ describe('RunSourceDialog', () => {
     })
     await renderSettled(<RunSourceDialog source={SOURCE} onClose={() => {}} onDone={() => {}} />)
 
-    fireEvent.change(screen.getByPlaceholderText(/RETAIL-DEMO/i), { target: { value: 'P1' } })
+    fireEvent.change(screen.getByPlaceholderText(/RETAIL/i), { target: { value: 'P1' } })
     fireEvent.click(screen.getByRole('button', { name: /Run extraction/i }))
 
     await waitFor(() => expect(screen.getByText(/Nothing new to import/)).toBeTruthy())
@@ -155,7 +155,7 @@ describe('RunSourceDialog', () => {
   it('reopens on the connection and project the source last imported into', async () => {
     const REMEMBERED: Source = {
       ...SOURCE,
-      config: { ...SOURCE.config, lastRun: { connectionId: 'c2', projectId: 'RETAIL' } },
+      config: { ...SOURCE.config, lastRun: { connectionId: 'c2', titleShort: 'RETAIL' } },
     }
     useStore.setState({
       connections: [{ id: 'c1', name: 'Prod DB' }, { id: 'c2', name: 'Staging DB' }] as never,
@@ -177,7 +177,7 @@ describe('RunSourceDialog', () => {
   it('falls back when the remembered connection is no longer assigned', async () => {
     const REMEMBERED: Source = {
       ...SOURCE,
-      config: { ...SOURCE.config, lastRun: { connectionId: 'gone', projectId: 'RETAIL' } },
+      config: { ...SOURCE.config, lastRun: { connectionId: 'gone', titleShort: 'RETAIL' } },
     }
     useStore.setState({
       connections: [{ id: 'c1', name: 'Prod DB' }] as never,
@@ -196,7 +196,7 @@ describe('RunSourceDialog', () => {
     } as never)
     const REMEMBERED: Source = {
       ...SOURCE,
-      config: { ...SOURCE.config, lastRun: { connectionId: 'c1', projectId: 'RETAIL' } },
+      config: { ...SOURCE.config, lastRun: { connectionId: 'c1', titleShort: 'RETAIL' } },
     }
     useStore.setState({
       connections: [{ id: 'c1', name: 'Prod DB' }] as never,
@@ -205,7 +205,7 @@ describe('RunSourceDialog', () => {
     await renderSettled(<RunSourceDialog source={REMEMBERED} onClose={() => {}} onDone={() => {}} />)
 
     await waitFor(() =>
-      expect((screen.getByPlaceholderText(/RETAIL-DEMO/i) as HTMLInputElement).value).toBe('RETAIL'),
+      expect((screen.getByPlaceholderText(/RETAIL/i) as HTMLInputElement).value).toBe('RETAIL'),
     )
   })
 

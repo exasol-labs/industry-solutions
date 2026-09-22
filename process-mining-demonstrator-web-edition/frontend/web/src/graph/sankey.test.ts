@@ -22,7 +22,7 @@ function graph(
   return {
     steps,
     transitions: edges.map(([fromStep, toStep, occurrences]) => ({
-      fromStep, toStep, occurrences, avgSecs: null, minSecs: null, maxSecs: null, stdDevSecs: null,
+      fromStep, toStep, occurrences, avgSecs: null, medianSecs: null, minSecs: null, maxSecs: null, stdDevSecs: null,
     })),
   }
 }
@@ -97,7 +97,7 @@ describe('buildSankey', () => {
     const t = (
       fromStep: string, toStep: string, occurrences: number,
       avgSecs: number, minSecs: number, maxSecs: number, stdDevSecs: number,
-    ) => ({ fromStep, toStep, occurrences, avgSecs, minSecs, maxSecs, stdDevSecs })
+    ) => ({ fromStep, toStep, occurrences, avgSecs, medianSecs: null, minSecs, maxSecs, stdDevSecs })
     // S→A and S→B both feed the {A,B} loop cluster, so they merge into one boundary link.
     const g: ProcessGraph = {
       steps: { S: step(), A: step(), B: step() },

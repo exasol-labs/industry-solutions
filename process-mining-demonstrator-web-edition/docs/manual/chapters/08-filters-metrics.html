@@ -30,6 +30,7 @@
 <tr><td><b>% Percentage</b></td><td>The share of journeys <em>leaving the source node</em> that take this edge — the branching probability at that step. Every node's outgoing edges sum to <b>100 %</b> (a node with a single outgoing edge shows 100 %).</td><td>Percent, e.g. "70%" / "3.5%"</td></tr>
 <tr><td><b>% Journey %</b> (default)</td><td>The share of <em>all filtered journeys</em> that traverse this edge (edge count ÷ total filtered journeys). The denominator is the whole map rather than the source node, so it shows how common an edge is overall. A value can exceed 100 % for an edge a single journey repeats.</td><td>Percent, e.g. "50%" / "0.4%"</td></tr>
 <tr><td><b>⏱ Avg Time</b></td><td>Mean elapsed time between the two steps.</td><td>"Ns", "Nm", "N.nh", "N.nd"</td></tr>
+<tr><td><b>½ Median Time</b></td><td>Median elapsed time between the two steps &mdash; the middle value, computed with the database's <code>MEDIAN</code> function. Unlike the mean it is not pulled by a few very slow or very fast outliers, so it is often a better "typical" duration.</td><td>as above</td></tr>
 <tr><td><b>⌄ Min Time</b></td><td>Shortest observed elapsed time for that transition.</td><td>as above</td></tr>
 <tr><td><b>⌃ Max Time</b></td><td>Longest observed elapsed time.</td><td>as above</td></tr>
 <tr><td><b>〰 Std Dev</b></td><td>Standard deviation of the elapsed times — a measure of how erratic the transition is.</td><td>as above</td></tr>
@@ -57,6 +58,7 @@
 <tr><td>Percentage</td><td>Green (high is good)</td><td>red → green</td></tr>
 <tr><td>Journey %</td><td>Green (high is good)</td><td>red → green</td></tr>
 <tr><td>Avg Time</td><td>Orange scale</td><td>light → dark orange</td></tr>
+<tr><td>Median Time</td><td>Orange scale</td><td>light → dark orange</td></tr>
 <tr><td>Min Time</td><td>Blue scale</td><td>light → dark blue</td></tr>
 <tr><td>Max Time</td><td>Red (low is good)</td><td>green → red</td></tr>
 <tr><td>Std Dev</td><td>Purple scale</td><td>light → dark purple</td></tr>
@@ -67,7 +69,7 @@
 
 <p>Nodes do not carry the transition metric themselves. What a node shows is its own step definition — name, colours, shape, optional description, an orange end-of-process dot, a note badge, and a <b>score</b> badge when the step has a score (green above zero, red below, blue at zero). Node <i>visits</i>, used by the Graph Value KPI, by Happy Path coverage and by the Statistics step-traffic chart, are computed as <code>max(incoming, outgoing)</code> occurrences — not as the sum of both, which would double-count pass-through steps.</p>
 
-<div class="warn"><strong>Warning</strong> When a step group is collapsed, its edges are merged: connection counts are <b>summed</b> and times are <b>weighted-averaged</b>, and transitions inside the group disappear. Min Time, Max Time and Std Dev cannot be reconstructed for a merged edge, so those three metrics show "—" on it. A grey hint at the bottom of the canvas repeats this while any group is collapsed.</div>
+<div class="warn"><strong>Warning</strong> When a step group is collapsed, its edges are merged: connection counts are <b>summed</b> and times are <b>weighted-averaged</b>, and transitions inside the group disappear. Median Time, Min Time, Max Time and Std Dev cannot be reconstructed for a merged edge, so those four metrics show "—" on it. A grey hint at the bottom of the canvas repeats this while any group is collapsed.</div>
 
 <div class="note"><strong>Note</strong> In <b>A/B Comparison</b>, changing the metric applies it to the side you are currently editing (A or B), not to both. In <b>Individual Journey</b> the metric selector is hidden and the edge metric is forced to <b>Avg Time</b>, because a count is meaningless for a single traversal. In <b>Conformance Check</b> the metric chips select which metric's norms you are viewing or editing.</div>
 
@@ -249,11 +251,12 @@
 <tr><td>2</td><td>⛃ <b>Filtered Journeys</b></td><td>Journeys matching the current filters</td></tr>
 <tr><td>3</td><td>🐇 <b>Shortest Journey</b></td><td>Minimum journey duration</td></tr>
 <tr><td>4</td><td>⏱️ <b>Avg Journey</b></td><td>Mean journey duration</td></tr>
-<tr><td>5</td><td>〰️ <b>Std Dev</b></td><td>Standard deviation of journey durations</td></tr>
-<tr><td>6</td><td>🐢 <b>Longest Journey</b></td><td>Maximum journey duration</td></tr>
-<tr><td>7</td><td>ƒ <b>Graph Value</b></td><td>Σ (step score × visits) over scored nodes, shown with an explicit sign. Hidden when no step carries a score.</td></tr>
-<tr><td>8</td><td>◔ <b>Process Goodness</b></td><td>Server-computed goodness score, signed, two decimals. Hidden when null.</td></tr>
-<tr><td>9</td><td>⇄ <b>Process Similarity</b></td><td>A/B similarity between 0 and 1. Shown only in A/B Comparison, and only once a similarity has been computed — never on a single-process chart.</td></tr>
+<tr><td>5</td><td>◑ <b>Median Journey</b></td><td>Median journey duration (the database <code>MEDIAN</code>) — the typical duration, unaffected by outliers</td></tr>
+<tr><td>6</td><td>〰️ <b>Std Dev</b></td><td>Standard deviation of journey durations</td></tr>
+<tr><td>7</td><td>🐢 <b>Longest Journey</b></td><td>Maximum journey duration</td></tr>
+<tr><td>8</td><td>ƒ <b>Graph Value</b></td><td>Σ (step score × visits) over scored nodes, shown with an explicit sign. Hidden when no step carries a score.</td></tr>
+<tr><td>9</td><td>◔ <b>Process Goodness</b></td><td>Server-computed goodness score, signed, two decimals. Hidden when null.</td></tr>
+<tr><td>10</td><td>⇄ <b>Process Similarity</b></td><td>A/B similarity between 0 and 1. Shown only in A/B Comparison, and only once a similarity has been computed — never on a single-process chart.</td></tr>
 <tr><td>10</td><td>▤ <b>Active Sample</b></td><td>The side's data source ("Original", "Sample 1"–"Sample 3", "Sim-A", "Sim-B") and its journey count.</td></tr>
 </tbody>
 </table>

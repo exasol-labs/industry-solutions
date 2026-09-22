@@ -47,6 +47,18 @@ _DATE_FORMATS = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d")
 _MAX_PATH_ROWS = 10_000  # variant / route path listings
 _MAX_SUGGESTIONS = 100  # event-ID autocomplete
 _MAX_LOG_ENTRIES = 1_000  # Actions "SHOW LAST N LOG ENTRIES"
+_MAX_JOURNEY_ROWS = 1_000  # find/list journeys (per-case aggregate rows)
+
+# ORDER BY clauses load_journeys accepts, keyed by the caller-facing name. A closed
+# map (never interpolated caller text) keeps the sort out of reach of SQL injection.
+JOURNEY_ORDERS: dict[str, str] = {
+    "DURATION_DESC": "DURATION_SECS DESC",
+    "DURATION_ASC": "DURATION_SECS ASC",
+    "START_DESC": "START_TIME DESC",
+    "START_ASC": "START_TIME ASC",
+    "STEPS_DESC": "STEP_COUNT DESC",
+    "STEPS_ASC": "STEP_COUNT ASC",
+}
 
 # Column headers returned by load_log_entries (the raw JOURNEYS row shape).
 LOG_ENTRY_COLUMNS = ["EVENT_ID", "STEP", "EVENT_TIME", "META_1", "META_2", "META_3"]
@@ -71,6 +83,13 @@ def _clamp(value: int, low: int, high: int) -> int:
 def esc(value: str) -> str:
     """Escape a SQL string literal the way the Swift app did."""
     return value.replace("'", "''")
+
+
+def _pid(project_id: int | str) -> int:
+    """PROJECT_ID is a SMALLINT — render it as an unquoted integer literal. Coercing
+    to int (from the API's number, or a numeric string) also makes injection
+    impossible, so it needs no string escaping."""
+    return int(project_id)
 
 
 def as_int(value: Any, default: int = 0) -> int:
@@ -244,6 +263,21 @@ class ProcessRepository:
                 f"MAX(CASE WHEN {p}STEP IN ({in_list(excluded)}) THEN 1 ELSE 0 END) = 0"
             )
 
+        # META value include/exclude — same journey-level semantics as steps, per column.
+        for column, inc, exc in (
+            ("META_1", f.includedMeta1, f.excludedMeta1),
+            ("META_2", f.includedMeta2, f.excludedMeta2),
+            ("META_3", f.includedMeta3, f.excludedMeta3),
+        ):
+            if inc:
+                having.append(
+                    f"MAX(CASE WHEN {p}{column} IN ({in_list(inc)}) THEN 1 ELSE 0 END) = 1"
+                )
+            if exc:
+                having.append(
+                    f"MAX(CASE WHEN {p}{column} IN ({in_list(exc)}) THEN 1 ELSE 0 END) = 0"
+                )
+
         if f.minSteps > 0 or f.maxSteps < INT_MAX:
             if f.minSteps > 0 and f.maxSteps < INT_MAX:
                 having.append(f"COUNT(*) BETWEEN {f.minSteps} AND {f.maxSteps}")
@@ -270,19 +304,21 @@ class ProcessRepository:
             return ""
 
         if score_active:
+            # Join on the integer activity id (matches the transition template's
+            # steps_u join) — STEP_ID is unique per project, so this is 1:1.
             source = (
                 "JOURNEYS j LEFT JOIN STEPS s "
-                "ON j.STEP = s.STEP AND j.PROJECT_ID = s.PROJECT_ID"
+                "ON j.STEP_ID = s.STEP_ID AND j.PROJECT_ID = s.PROJECT_ID"
             )
             where = (
-                f"j.PROJECT_ID = '{project_id}' "
+                f"j.PROJECT_ID = {project_id} "
                 f"AND {self.active_sample_set.sql_fragment('j')}"
             )
             key = "j.EVENT_ID"
         else:
             source = "JOURNEYS"
             where = (
-                f"PROJECT_ID = '{project_id}' "
+                f"PROJECT_ID = {project_id} "
                 f"AND {self.active_sample_set.sql_fragment()}"
             )
             key = "EVENT_ID"
@@ -299,7 +335,7 @@ class ProcessRepository:
         "active in window" match, as the LEAD()-based transition query needs whole
         journeys. Every other journey-level filter goes through one consolidated
         EVENT_ID semi-join in both modes."""
-        safe = esc(project_id)
+        safe = _pid(project_id)
         clauses = self._sample_clause()
         if date_only:
             clauses += self._date_clause(f.fromDate, f.toDate)
@@ -313,17 +349,18 @@ class ProcessRepository:
 
     async def load_projects(self) -> list[Project]:
         result = await self.db.execute(
-            "SELECT PROJECT_ID, TITLE, DESCRIPTION FROM PROJECTS ORDER BY TITLE"
+            "SELECT PROJECT_ID, TITLE, DESCRIPTION, TITLE_SHORT FROM PROJECTS ORDER BY TITLE"
         )
         projects: list[Project] = []
         for row in result.rows:
-            if not isinstance(row[0], str) or not isinstance(row[1], str):
+            if row[0] is None:  # PROJECT_ID is a SMALLINT (int) now, not a string
                 continue
             projects.append(
                 Project(
-                    projectId=row[0],
-                    title=row[1],
+                    projectId=int(row[0]),
+                    title=row[1] if isinstance(row[1], str) else "",
                     description=row[2] if isinstance(row[2], str) else "",
+                    titleShort=row[3] if isinstance(row[3], str) else "",
                 )
             )
         return projects
@@ -339,7 +376,7 @@ class ProcessRepository:
             f"""
             SELECT STEP, DESCRIPTION, BG_COLOR, FG_COLOR, SCORE, SHAPE, END_OF_PROCESS, BELONGS_TO
             FROM STEPS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             """
         )
         steps: dict[str, StepInfo] = {}
@@ -391,7 +428,7 @@ class ProcessRepository:
                 SHAPE = '{esc(shape)}',
                 {belongs_sql},
                 {desc_sql}
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND STEP = '{esc(step)}'
             """
         )
@@ -404,7 +441,7 @@ class ProcessRepository:
             f"""
             SELECT META_1_TITLE, META_2_TITLE, META_3_TITLE
             FROM METAS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             """
         )
         if not result.rows:
@@ -419,7 +456,7 @@ class ProcessRepository:
             f"""
             SELECT DISTINCT {column}
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND {self.active_sample_set.sql_fragment()}
             AND {column} IS NOT NULL
             ORDER BY {column}
@@ -430,7 +467,7 @@ class ProcessRepository:
     async def load_all_step_names(self, project_id: str) -> list[str]:
         result = await self.db.execute(
             "SELECT DISTINCT STEP FROM JOURNEYS "
-            f"WHERE PROJECT_ID = '{esc(project_id)}' "
+            f"WHERE PROJECT_ID = {_pid(project_id)} "
             f"AND {self.active_sample_set.sql_fragment()} ORDER BY STEP"
         )
         return [r[0] for r in result.rows if isinstance(r[0], str)]
@@ -442,7 +479,7 @@ class ProcessRepository:
     ) -> tuple[datetime | None, datetime | None]:
         result = await self.db.execute(
             "SELECT MIN(EVENT_TIME), MAX(EVENT_TIME) FROM JOURNEYS "
-            f"WHERE PROJECT_ID = '{esc(project_id)}' "
+            f"WHERE PROJECT_ID = {_pid(project_id)} "
             f"AND {self.active_sample_set.sql_fragment()}"
         )
         if not result.rows:
@@ -457,7 +494,7 @@ class ProcessRepository:
             FROM (
                 SELECT SECONDS_BETWEEN(MAX(EVENT_TIME), MIN(EVENT_TIME)) AS dur
                 FROM JOURNEYS
-                WHERE PROJECT_ID = '{esc(project_id)}'
+                WHERE PROJECT_ID = {_pid(project_id)}
                 AND {self.active_sample_set.sql_fragment()}
                 GROUP BY EVENT_ID
             ) AS j
@@ -475,7 +512,7 @@ class ProcessRepository:
             FROM (
                 SELECT COUNT(*) AS cnt
                 FROM JOURNEYS
-                WHERE PROJECT_ID = '{esc(project_id)}'
+                WHERE PROJECT_ID = {_pid(project_id)}
                 AND {self.active_sample_set.sql_fragment()}
                 GROUP BY EVENT_ID
             ) AS j
@@ -494,7 +531,7 @@ class ProcessRepository:
                 SELECT j.EVENT_ID, SUM(COALESCE(s.SCORE, 0)) AS journey_score
                 FROM JOURNEYS j
                 LEFT JOIN STEPS s ON j.STEP = s.STEP AND j.PROJECT_ID = s.PROJECT_ID
-                WHERE j.PROJECT_ID = '{esc(project_id)}'
+                WHERE j.PROJECT_ID = {_pid(project_id)}
                 AND {self.active_sample_set.sql_fragment('j')}
                 GROUP BY j.EVENT_ID
             ) AS scored
@@ -530,7 +567,7 @@ class ProcessRepository:
                        SUM(COALESCE(s.SCORE, 0)) AS jscore
                 FROM JOURNEYS j
                 LEFT JOIN STEPS s ON j.STEP = s.STEP AND j.PROJECT_ID = s.PROJECT_ID
-                WHERE j.PROJECT_ID = '{esc(project_id)}'
+                WHERE j.PROJECT_ID = {_pid(project_id)}
                 AND {frag}
                 GROUP BY j.EVENT_ID
             ) AS jb
@@ -553,11 +590,11 @@ class ProcessRepository:
         out: dict[str, list[str]] = {c: [] for c in cols}
         if not cols:
             return out
-        safe = esc(project_id)
+        safe = _pid(project_id)
         frag = self.active_sample_set.sql_fragment()
         parts = [
             f"SELECT '{c}' AS col, {c} AS val FROM JOURNEYS "
-            f"WHERE PROJECT_ID = '{safe}' AND {frag} AND {c} IS NOT NULL GROUP BY {c}"
+            f"WHERE PROJECT_ID = {safe} AND {frag} AND {c} IS NOT NULL GROUP BY {c}"
             for c in cols
         ]
         sql = " UNION ALL ".join(parts) + " ORDER BY col, val"
@@ -568,23 +605,59 @@ class ProcessRepository:
                 out[col].append(val)
         return out
 
+    async def load_node_meta_values(
+        self, project_id: str, step: str
+    ) -> dict[str, list[dict[str, Any]]]:
+        """The META_1/2/3 values that occur on the events of ONE step (node) — what the
+        node's "Meta Infos" panel lists, scoped to that node. Each distinct value carries
+        the date/time it was last seen (``time``) and how many of the node's events carry
+        it (``count``), so the panel can show and search a second date/time field. One
+        round trip (UNION ALL tagged by column), newest first."""
+        cols = ["META_1", "META_2", "META_3"]
+        out: dict[str, list[dict[str, Any]]] = {c: [] for c in cols}
+        safe = _pid(project_id)
+        frag = self.active_sample_set.sql_fragment()
+        step_sql = f"STEP = '{esc(step)}'"
+        parts = [
+            f"SELECT '{c}' AS col, {c} AS val, MAX(EVENT_TIME) AS ts, COUNT(*) AS cnt "
+            f"FROM JOURNEYS "
+            f"WHERE PROJECT_ID = {safe} AND {frag} AND {step_sql} AND {c} IS NOT NULL "
+            f"GROUP BY {c}"
+            for c in cols
+        ]
+        # Order by output position (unambiguous across UNION ALL): column, then most
+        # recent occurrence first, then value.
+        sql = " UNION ALL ".join(parts) + " ORDER BY 1, 3 DESC, 2"
+        result = await self.db.execute(sql)
+        for row in result.rows:
+            col, val = row[0], row[1]
+            if not (isinstance(col, str) and col in out and isinstance(val, str)):
+                continue
+            when = parse_date(row[2]) if len(row) > 2 else None
+            out[col].append({
+                "value": val,
+                "time": when.strftime("%Y-%m-%d %H:%M:%S") if when else "",
+                "count": as_int(row[3]) if len(row) > 3 else 1,
+            })
+        return out
+
     async def find_nearest_day_with_data(
         self, day: datetime, project_id: str
     ) -> datetime | None:
-        safe = esc(project_id)
+        safe = _pid(project_id)
         frag = self.active_sample_set.sql_fragment()
         start_of_day = datetime(day.year, day.month, day.day)
         next_day = start_of_day + timedelta(days=1)
 
         forward = await self.db.execute(
-            f"SELECT MIN(EVENT_TIME) FROM JOURNEYS WHERE PROJECT_ID = '{safe}' "
+            f"SELECT MIN(EVENT_TIME) FROM JOURNEYS WHERE PROJECT_ID = {safe} "
             f"AND {frag} AND EVENT_TIME >= '{next_day:%Y-%m-%d}'"
         )
         if forward.rows and (found := parse_date(forward.rows[0][0])):
             return datetime(found.year, found.month, found.day)
 
         backward = await self.db.execute(
-            f"SELECT MAX(EVENT_TIME) FROM JOURNEYS WHERE PROJECT_ID = '{safe}' "
+            f"SELECT MAX(EVENT_TIME) FROM JOURNEYS WHERE PROJECT_ID = {safe} "
             f"AND {frag} AND EVENT_TIME < '{start_of_day:%Y-%m-%d}'"
         )
         if backward.rows and (found := parse_date(backward.rows[0][0])):
@@ -599,7 +672,7 @@ class ProcessRepository:
             f"""
             SELECT COUNT(DISTINCT EVENT_ID)
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'{filters}
+            WHERE PROJECT_ID = {_pid(project_id)}{filters}
             """
         )
         if not result.rows:
@@ -637,7 +710,7 @@ class ProcessRepository:
         return f"""
             SELECT EVENT_ID, STEP, EVENT_TIME, META_1, META_2, META_3
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'{clauses}
+            WHERE PROJECT_ID = {_pid(project_id)}{clauses}
             ORDER BY EVENT_TIME {order}, STEP_ID {order}
             LIMIT {_clamp(limit, 1, _MAX_LOG_ENTRIES)}
             """
@@ -690,7 +763,15 @@ class ProcessRepository:
         # {filters} applies unchanged — TRANSITIONS_RAW carries PROJECT_ID,
         # SAMPLE_SET and EVENT_ID. Any failure (table not built yet, missing) is
         # non-fatal: fall back to the live query so the map never breaks.
+        #
+        # Sample sets always use the LIVE query, never TRANSITIONS_RAW. A sample is
+        # created/rebuilt on demand and TRANSITIONS_RAW is only rebuilt separately, so a
+        # materialised read of a just-made sample would come back EMPTY (its pairs aren't
+        # in the table yet) — the map would silently look blank. Samples are subsets, so
+        # the live LEAD() over them is cheap anyway.
         enabled = bool(getattr(self.db, "use_materialized_transitions", False))
+        if enabled and not self.active_sample_set.is_original:
+            enabled = False
         if enabled:
             try:
                 result = await self.db.execute(
@@ -718,42 +799,67 @@ class ProcessRepository:
 
     @staticmethod
     def _materialized_transitions_sql(project_id: str, filters: str) -> str:
-        """Aggregate the precomputed pairs — no window function at request time."""
+        """Aggregate the precomputed pairs — no window function at request time.
+
+        TRANSITIONS_RAW stores FROM_STEP_ID / TO_STEP_ID (activity ids); grouping
+        runs on those integers and STEP names are attached in the final join,
+        matching the live query so both paths return identical rows."""
+        safe = _pid(project_id)
         return f"""
-            SELECT FROM_STEP, TO_STEP, COUNT(*) AS CNT,
-                   AVG(DUR_SECS)    AS AVG_SECS,
-                   MIN(DUR_SECS)    AS MIN_SECS,
-                   MAX(DUR_SECS)    AS MAX_SECS,
-                   STDDEV(DUR_SECS) AS STDDEV_SECS
-            FROM TRANSITIONS_RAW
-            WHERE PROJECT_ID = '{esc(project_id)}'{filters}
-            GROUP BY FROM_STEP, TO_STEP
+            SELECT S.STEP AS FROM_STEP, T.STEP AS TO_STEP,
+                   H.CNT, H.AVG_SECS, H.MEDIAN_SECS, H.MIN_SECS, H.MAX_SECS, H.STDDEV_SECS
+            FROM (
+                SELECT FROM_STEP_ID, TO_STEP_ID, COUNT(*) AS CNT,
+                       AVG(DUR_SECS)    AS AVG_SECS,
+                       MIN(DUR_SECS)    AS MIN_SECS,
+                       MAX(DUR_SECS)    AS MAX_SECS,
+                       STDDEV(DUR_SECS) AS STDDEV_SECS,
+                       MEDIAN(DUR_SECS) AS MEDIAN_SECS
+                FROM TRANSITIONS_RAW
+                WHERE PROJECT_ID = {safe}{filters}
+                GROUP BY FROM_STEP_ID, TO_STEP_ID
+            ) AS H
+            JOIN STEPS S ON S.PROJECT_ID = {safe} AND S.STEP_ID = H.FROM_STEP_ID
+            JOIN STEPS T ON T.PROJECT_ID = {safe} AND T.STEP_ID = H.TO_STEP_ID
             """
 
     @staticmethod
     def _live_transitions_sql(project_id: str, filters: str) -> str:
-        """Compute pairs on the fly with LEAD() — the always-available path."""
+        """Compute pairs on the fly with LEAD() — the always-available path.
+
+        The DFG is built on the integer STEP_ID (activity id): LEAD / GROUP BY /
+        PARTITION BY all run on STEP_ID, and the step NAMES are attached only in
+        the final projection (one join per direction against STEPS). Grouping on a
+        DECIMAL id instead of a VARCHAR(500) name is the performance win."""
+        safe = _pid(project_id)
         return f"""
-            SELECT FROM_STEP, TO_STEP, COUNT(*) AS CNT,
-                   AVG(DUR_SECS)    AS AVG_SECS,
-                   MIN(DUR_SECS)    AS MIN_SECS,
-                   MAX(DUR_SECS)    AS MAX_SECS,
-                   STDDEV(DUR_SECS) AS STDDEV_SECS
+            SELECT S.STEP AS FROM_STEP, T.STEP AS TO_STEP,
+                   H.CNT, H.AVG_SECS, H.MEDIAN_SECS, H.MIN_SECS, H.MAX_SECS, H.STDDEV_SECS
             FROM (
-                SELECT FROM_STEP, TO_STEP,
-                       SECONDS_BETWEEN(TO_TIME, FROM_TIME) AS DUR_SECS
+                SELECT FROM_STEP_ID, TO_STEP_ID, COUNT(*) AS CNT,
+                       AVG(DUR_SECS)    AS AVG_SECS,
+                       MIN(DUR_SECS)    AS MIN_SECS,
+                       MAX(DUR_SECS)    AS MAX_SECS,
+                       STDDEV(DUR_SECS) AS STDDEV_SECS,
+                       MEDIAN(DUR_SECS) AS MEDIAN_SECS
                 FROM (
-                    SELECT
-                        STEP       AS FROM_STEP,
-                        EVENT_TIME AS FROM_TIME,
-                        LEAD(STEP)       OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_STEP,
-                        LEAD(EVENT_TIME) OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_TIME
-                    FROM JOURNEYS
-                    WHERE PROJECT_ID = '{esc(project_id)}'{filters}
-                ) AS t
-                WHERE TO_STEP IS NOT NULL AND TO_TIME IS NOT NULL
-            ) AS d
-            GROUP BY FROM_STEP, TO_STEP
+                    SELECT FROM_STEP_ID, TO_STEP_ID,
+                           SECONDS_BETWEEN(TO_TIME, FROM_TIME) AS DUR_SECS
+                    FROM (
+                        SELECT
+                            STEP_ID    AS FROM_STEP_ID,
+                            EVENT_TIME AS FROM_TIME,
+                            LEAD(STEP_ID)    OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_STEP_ID,
+                            LEAD(EVENT_TIME) OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_TIME
+                        FROM JOURNEYS
+                        WHERE PROJECT_ID = {safe}{filters}
+                    ) AS t
+                    WHERE TO_STEP_ID IS NOT NULL AND TO_TIME IS NOT NULL
+                ) AS d
+                GROUP BY FROM_STEP_ID, TO_STEP_ID
+            ) AS H
+            JOIN STEPS S ON S.PROJECT_ID = {safe} AND S.STEP_ID = H.FROM_STEP_ID
+            JOIN STEPS T ON T.PROJECT_ID = {safe} AND T.STEP_ID = H.TO_STEP_ID
             """
 
     @staticmethod
@@ -770,9 +876,10 @@ class ProcessRepository:
                     toStep=row[1],
                     occurrences=as_int(row[2]),
                     avgSecs=as_float(row[3]),
-                    minSecs=as_float(row[4]),
-                    maxSecs=as_float(row[5]),
-                    stdDevSecs=as_float(row[6]),
+                    medianSecs=as_float(row[4]),
+                    minSecs=as_float(row[5]),
+                    maxSecs=as_float(row[6]),
+                    stdDevSecs=as_float(row[7]),
                 )
             )
         return transitions
@@ -808,6 +915,7 @@ class ProcessRepository:
             SELECT
                 MIN(SECONDS_BETWEEN(MAX_TIME, MIN_TIME)) AS MIN_SECS,
                 AVG(SECONDS_BETWEEN(MAX_TIME, MIN_TIME)) AS AVG_SECS,
+                MEDIAN(SECONDS_BETWEEN(MAX_TIME, MIN_TIME)) AS MEDIAN_SECS,
                 MAX(SECONDS_BETWEEN(MAX_TIME, MIN_TIME)) AS MAX_SECS,
                 STDDEV(SECONDS_BETWEEN(MAX_TIME, MIN_TIME)) AS STDDEV_SECS
             FROM (
@@ -815,7 +923,7 @@ class ProcessRepository:
                        MIN(EVENT_TIME) AS MIN_TIME,
                        MAX(EVENT_TIME) AS MAX_TIME
                 FROM JOURNEYS
-                WHERE PROJECT_ID = '{esc(project_id)}'{filters}
+                WHERE PROJECT_ID = {_pid(project_id)}{filters}
                 GROUP BY EVENT_ID
             ) AS j
             """
@@ -826,15 +934,16 @@ class ProcessRepository:
         return DurationStats(
             minSecs=as_float(row[0]),
             avgSecs=as_float(row[1]),
-            maxSecs=as_float(row[2]),
-            stdDevSecs=as_float(row[3]),
+            medianSecs=as_float(row[2]),
+            maxSecs=as_float(row[3]),
+            stdDevSecs=as_float(row[4]),
         )
 
     async def load_duration_buckets(
         self, project_id: str, f: FilterSpec, bin_count: int = 10
     ) -> list[DurationBucket]:
         filters = self._all_filters(project_id, f, date_only=True)
-        safe = esc(project_id)
+        safe = _pid(project_id)
         n = bin_count
         # Per-journey durations are computed ONCE; the global min/max come from
         # window aggregates over that same result (MIN/MAX OVER ()), so JOURNEYS is
@@ -856,7 +965,7 @@ class ProcessRepository:
                     FROM (
                         SELECT SECONDS_BETWEEN(MAX(EVENT_TIME), MIN(EVENT_TIME)) AS dur
                         FROM JOURNEYS
-                        WHERE PROJECT_ID = '{safe}'{filters}
+                        WHERE PROJECT_ID = {safe}{filters}
                         GROUP BY EVENT_ID
                     ) d
                 ) w
@@ -897,7 +1006,7 @@ class ProcessRepository:
             f"""
             SELECT {trunc} AS period, COUNT(DISTINCT EVENT_ID) AS cnt
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'{filters}
+            WHERE PROJECT_ID = {_pid(project_id)}{filters}
             GROUP BY {trunc}
             ORDER BY {trunc}
             """
@@ -926,7 +1035,7 @@ class ProcessRepository:
                     SUM(COALESCE(s.SCORE, 0)) AS score
                 FROM JOURNEYS j
                 LEFT JOIN STEPS s ON j.STEP = s.STEP AND j.PROJECT_ID = s.PROJECT_ID
-                WHERE j.PROJECT_ID = '{esc(project_id)}'{filters}
+                WHERE j.PROJECT_ID = {_pid(project_id)}{filters}
                 GROUP BY j.EVENT_ID
             ),
             distinct_paths AS (
@@ -975,40 +1084,34 @@ class ProcessRepository:
         """Returns (rawGoodness, filteredCount); the caller applies the coverage
         penalty `raw * (filtered / total) ** 0.5`."""
         filters = self._all_filters(project_id, f, date_only=True)
+        # Goodness is a path-frequency-weighted mean, but the per-path term
+        # (total_score / sqrt(path_length) - 0.01 * avg_duration) is CONSTANT across the
+        # journeys that share a path (score and length are fixed by the step sequence), so
+        # the frequency weighting collapses algebraically to a plain per-journey average:
+        #   sum_paths (count_p/total) * term_p  ==  avg_journeys(term_j).
+        # That removes the LISTAGG path string and the distinct-path GROUP BY entirely — one
+        # cheap GROUP BY EVENT_ID pass, no per-journey sort. The `{filters}` semi-join +
+        # row-level date/meta are unchanged, so the result is identical to the grouped form.
+        # (Valid only while the term is linear per journey; if goodness ever gains a factor
+        # applied ONCE PER DISTINCT PATH, restore the ordered_paths/distinct_paths grouping.)
         sql = f"""
-            WITH ordered_paths AS (
+            WITH per_journey AS (
                 SELECT
-                    j.EVENT_ID,
-                    LISTAGG(j.STEP, ' -> ') WITHIN GROUP (ORDER BY j.EVENT_TIME ASC) AS full_path,
                     COUNT(j.STEP)                                                      AS path_length,
                     SUM(COALESCE(s.SCORE, 0))                                          AS total_score,
                     COALESCE(SECONDS_BETWEEN(MAX(j.EVENT_TIME), MIN(j.EVENT_TIME)), 0) AS journey_duration
                 FROM JOURNEYS j
-                LEFT JOIN STEPS s ON j.STEP = s.STEP AND j.PROJECT_ID = s.PROJECT_ID
-                WHERE j.PROJECT_ID = '{esc(project_id)}'{filters}
+                LEFT JOIN STEPS s ON j.STEP_ID = s.STEP_ID AND j.PROJECT_ID = s.PROJECT_ID
+                WHERE j.PROJECT_ID = {_pid(project_id)}{filters}
                 GROUP BY j.EVENT_ID
-            ),
-            distinct_paths AS (
-                SELECT
-                    path_length,
-                    total_score,
-                    COUNT(*)              AS journey_count,
-                    AVG(journey_duration) AS avg_duration
-                FROM ordered_paths
-                GROUP BY full_path, path_length, total_score
-            ),
-            totals AS (
-                SELECT SUM(journey_count) AS total_freq FROM distinct_paths
             )
             SELECT
-                SUM(
-                    (CAST(dp.journey_count AS DOUBLE) / CAST(t.total_freq AS DOUBLE)) *
-                    (CAST(dp.total_score   AS DOUBLE) / SQRT(CAST(GREATEST(dp.path_length, 1) AS DOUBLE)) -
-                     0.01 * dp.avg_duration)
+                AVG(
+                    CAST(total_score AS DOUBLE) / SQRT(CAST(GREATEST(path_length, 1) AS DOUBLE)) -
+                    0.01 * journey_duration
                 ) AS raw_goodness,
-                t.total_freq AS filtered_count
-            FROM distinct_paths dp, totals t
-            GROUP BY t.total_freq
+                COUNT(*) AS filtered_count
+            FROM per_journey
             """
         try:
             result = await self.db.execute(sql, timeout=QUERY_TIMEOUT_SECS)
@@ -1031,14 +1134,112 @@ class ProcessRepository:
             f"""
             SELECT DISTINCT EVENT_ID
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND {self.active_sample_set.sql_fragment()}
-            AND UPPER(EVENT_ID) LIKE UPPER('%{esc(prefix)}%')
+            AND UPPER(CAST(EVENT_ID AS VARCHAR(32))) LIKE UPPER('%{esc(prefix)}%')
             ORDER BY EVENT_ID
             LIMIT {limit}
             """
         )
         return [r[0] for r in result.rows if isinstance(r[0], str)]
+
+    async def load_journeys(
+        self,
+        project_id: str,
+        f: FilterSpec,
+        *,
+        order_by: str = "DURATION_DESC",
+        limit: int = 20,
+        min_duration_secs: float | None = None,
+        max_duration_secs: float | None = None,
+        min_steps: int | None = None,
+        max_steps: int | None = None,
+        include_path: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Individual journeys matching ``f``, one aggregate row per EVENT_ID.
+
+        The counterpart to the aggregate loaders: where load_journey_paths collapses
+        cases into variants and load_journey_duration_stats into four numbers, this
+        keeps the cases themselves, so a caller can get from "the average is 63 min"
+        to the actual slowest journeys and open one with load_journey_sequence.
+
+        Duration and step-count bounds are HAVING clauses on the same grouping, so a
+        journey qualifies on its whole trace, not on individual rows. ``order_by`` is
+        a key of JOURNEY_ORDERS; EVENT_ID breaks ties so the order is total.
+        """
+        clause = JOURNEY_ORDERS.get(order_by.upper())
+        if clause is None:
+            raise ValueError(
+                f"Unknown order_by {order_by!r}; expected one of {', '.join(JOURNEY_ORDERS)}."
+            )
+        limit = _clamp(limit, 1, _MAX_JOURNEY_ROWS)
+        filters = self._all_filters(project_id, f, date_only=True)
+
+        # HAVING repeats the aggregate expressions rather than the SELECT aliases:
+        # alias visibility in HAVING is not portable, the ORDER BY alias is.
+        secs = "SECONDS_BETWEEN(MAX(EVENT_TIME), MIN(EVENT_TIME))"
+        having: list[str] = []
+        if min_duration_secs is not None:
+            having.append(f"{secs} >= {float(min_duration_secs)}")
+        if max_duration_secs is not None:
+            having.append(f"{secs} <= {float(max_duration_secs)}")
+        if min_steps is not None:
+            having.append(f"COUNT(*) >= {int(min_steps)}")
+        if max_steps is not None:
+            having.append(f"COUNT(*) <= {int(max_steps)}")
+        having_sql = ("\n            HAVING " + "\n              AND ".join(having)) if having else ""
+
+        # PATH is reserved in Exasol, so the column is JOURNEY_PATH — load_journey_paths
+        # sidesteps this by aliasing in lower case inside a CTE; here it is a plain alias.
+        path_select = (
+            ",\n                LISTAGG(STEP, ' -> ') WITHIN GROUP (ORDER BY EVENT_TIME ASC)"
+            " AS JOURNEY_PATH"
+            if include_path
+            else ""
+        )
+
+        sql = f"""
+            SELECT
+                EVENT_ID,
+                MIN(EVENT_TIME) AS START_TIME,
+                MAX(EVENT_TIME) AS END_TIME,
+                SECONDS_BETWEEN(MAX(EVENT_TIME), MIN(EVENT_TIME)) AS DURATION_SECS,
+                COUNT(*) AS STEP_COUNT,
+                MAX(META_1) AS META_1,
+                MAX(META_2) AS META_2,
+                MAX(META_3) AS META_3{path_select}
+            FROM JOURNEYS
+            WHERE PROJECT_ID = {_pid(project_id)}{filters}
+            GROUP BY EVENT_ID{having_sql}
+            ORDER BY {clause}, EVENT_ID
+            LIMIT {limit}
+            """
+        try:
+            result = await self.db.execute(sql, timeout=QUERY_TIMEOUT_SECS)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"Journey query timed out ({QUERY_TIMEOUT_SECS:.0f} s). "
+                "Narrow your date range or filters and try again."
+            ) from exc
+
+        journeys: list[dict[str, Any]] = []
+        for row in result.rows:
+            if not isinstance(row[0], str):
+                continue
+            journeys.append(
+                {
+                    "eventId": row[0],
+                    "startDate": parse_date(row[1]),
+                    "endDate": parse_date(row[2]),
+                    "durationSecs": as_float(row[3]),
+                    "stepCount": as_int(row[4]),
+                    "meta1": clean_str(row[5]),
+                    "meta2": clean_str(row[6]),
+                    "meta3": clean_str(row[7]),
+                    "path": clean_str(row[8]) if include_path and len(row) > 8 else None,
+                }
+            )
+        return journeys
 
     async def load_journey_info(self, project_id: str, event_id: str) -> dict[str, Any]:
         result = await self.db.execute(
@@ -1046,7 +1247,7 @@ class ProcessRepository:
             SELECT MIN(EVENT_TIME), MAX(EVENT_TIME),
                    MAX(META_1), MAX(META_2), MAX(META_3)
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND {self.active_sample_set.sql_fragment()}
             AND EVENT_ID = '{esc(event_id)}'
             """
@@ -1076,7 +1277,7 @@ class ProcessRepository:
             f"""
             SELECT STEP, EVENT_TIME
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND {self.active_sample_set.sql_fragment()}
             AND EVENT_ID = '{esc(event_id)}'
             ORDER BY EVENT_TIME, STEP_ID
@@ -1091,33 +1292,40 @@ class ProcessRepository:
         return out
 
     async def load_journey_graph(self, project_id: str, event_id: str) -> ProcessGraph:
-        safe_pid, safe_eid = esc(project_id), esc(event_id)
+        safe_pid, safe_eid = _pid(project_id), esc(event_id)
         frag = self.active_sample_set.sql_fragment()
 
         trans_result = await self.db.execute(
             f"""
-            SELECT FROM_STEP, TO_STEP, COUNT(*) AS CNT,
-                   AVG(DUR_SECS)    AS AVG_SECS,
-                   MIN(DUR_SECS)    AS MIN_SECS,
-                   MAX(DUR_SECS)    AS MAX_SECS,
-                   STDDEV(DUR_SECS) AS STDDEV_SECS
+            SELECT S.STEP AS FROM_STEP, T.STEP AS TO_STEP,
+                   H.CNT, H.AVG_SECS, H.MEDIAN_SECS, H.MIN_SECS, H.MAX_SECS, H.STDDEV_SECS
             FROM (
-                SELECT FROM_STEP, TO_STEP,
-                       SECONDS_BETWEEN(TO_TIME, FROM_TIME) AS DUR_SECS
+                SELECT FROM_STEP_ID, TO_STEP_ID, COUNT(*) AS CNT,
+                       AVG(DUR_SECS)    AS AVG_SECS,
+                       MIN(DUR_SECS)    AS MIN_SECS,
+                       MAX(DUR_SECS)    AS MAX_SECS,
+                       STDDEV(DUR_SECS) AS STDDEV_SECS,
+                       MEDIAN(DUR_SECS) AS MEDIAN_SECS
                 FROM (
-                    SELECT
-                        STEP       AS FROM_STEP,
-                        EVENT_TIME AS FROM_TIME,
-                        LEAD(STEP)       OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_STEP,
-                        LEAD(EVENT_TIME) OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_TIME
-                    FROM JOURNEYS
-                    WHERE PROJECT_ID = '{safe_pid}'
-                    AND {frag}
-                    AND EVENT_ID = '{safe_eid}'
-                ) AS t
-                WHERE TO_STEP IS NOT NULL AND TO_TIME IS NOT NULL
-            ) AS d
-            GROUP BY FROM_STEP, TO_STEP
+                    SELECT FROM_STEP_ID, TO_STEP_ID,
+                           SECONDS_BETWEEN(TO_TIME, FROM_TIME) AS DUR_SECS
+                    FROM (
+                        SELECT
+                            STEP_ID    AS FROM_STEP_ID,
+                            EVENT_TIME AS FROM_TIME,
+                            LEAD(STEP_ID)    OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_STEP_ID,
+                            LEAD(EVENT_TIME) OVER (PARTITION BY EVENT_ID ORDER BY EVENT_TIME, STEP_ID) AS TO_TIME
+                        FROM JOURNEYS
+                        WHERE PROJECT_ID = {safe_pid}
+                        AND {frag}
+                        AND EVENT_ID = '{safe_eid}'
+                    ) AS t
+                    WHERE TO_STEP_ID IS NOT NULL AND TO_TIME IS NOT NULL
+                ) AS d
+                GROUP BY FROM_STEP_ID, TO_STEP_ID
+            ) AS H
+            JOIN STEPS S ON S.PROJECT_ID = {safe_pid} AND S.STEP_ID = H.FROM_STEP_ID
+            JOIN STEPS T ON T.PROJECT_ID = {safe_pid} AND T.STEP_ID = H.TO_STEP_ID
             """
         )
         transitions = self._rows_to_transitions(trans_result.rows)
@@ -1126,7 +1334,7 @@ class ProcessRepository:
             f"""
             SELECT STEP, MIN(EVENT_TIME) AS FIRST_TIME
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{safe_pid}'
+            WHERE PROJECT_ID = {safe_pid}
             AND {frag}
             AND EVENT_ID = '{safe_eid}'
             GROUP BY STEP
@@ -1228,7 +1436,7 @@ class ProcessRepository:
             f"""
             SELECT {self._NOTE_COLUMNS}
             FROM NOTES
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             {vis_filter}
             ORDER BY NOTES_DATE ASC
             """
@@ -1238,7 +1446,7 @@ class ProcessRepository:
     async def get_note(self, note_id: str, project_id: str) -> ProcessNote | None:
         result = await self.db.execute(
             f"SELECT {self._NOTE_COLUMNS} FROM NOTES "
-            f"WHERE ID = '{esc(note_id)}' AND PROJECT_ID = '{esc(project_id)}'"
+            f"WHERE ID = '{esc(note_id)}' AND PROJECT_ID = {_pid(project_id)}"
         )
         for row in result.rows:
             return self._row_to_note(row)
@@ -1284,7 +1492,7 @@ class ProcessRepository:
             sets.append(f"IS_SHARED = {'TRUE' if is_shared else 'FALSE'}")
         await self.db.execute(
             f"UPDATE NOTES SET {', '.join(sets)} "
-            f"WHERE ID = '{esc(note_id)}' AND PROJECT_ID = '{esc(project_id)}'"
+            f"WHERE ID = '{esc(note_id)}' AND PROJECT_ID = {_pid(project_id)}"
         )
 
     async def note_owner(self, note_id: str) -> str | None:
@@ -1325,7 +1533,7 @@ class ProcessRepository:
                 (ID, PROJECT_ID, NOTES_DATE, EDITED_DATE, NOTE_USER, NOTE, IS_SHARED, EDITED_BY,
                  IMPORTANCE, RESOLVED, TITLE, TARGET_TYPE, TARGET_FROM, TARGET_TO, FILTER_SNAPSHOT)
             VALUES (
-                '{esc(note.id)}', '{esc(project_id)}',
+                '{esc(note.id)}', {_pid(project_id)},
                 {created_sql}, {edited_sql},
                 '{esc(note.username)}', '{esc(note.text)}',
                 {'TRUE' if note.isShared else 'FALSE'}, '{esc(note.lastEditedBy)}',
@@ -1343,7 +1551,7 @@ class ProcessRepository:
         safe_user = esc(username.upper())
         await self.db.execute(
             f"DELETE FROM NOTES WHERE ID = '{esc(note_id)}' "
-            f"AND PROJECT_ID = '{esc(project_id)}' "
+            f"AND PROJECT_ID = {_pid(project_id)} "
             f"AND UPPER(NOTE_USER) = '{safe_user}'"
         )
 
@@ -1362,7 +1570,7 @@ class ProcessRepository:
             f"""
             SELECT SAMPLE_SET, COUNT(DISTINCT EVENT_ID) AS cnt
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             GROUP BY SAMPLE_SET
             """
         )
@@ -1382,7 +1590,7 @@ class ProcessRepository:
             f"""
             SELECT DISTINCT EVENT_ID
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND (SAMPLE_SET = 'ORIGINAL' OR SAMPLE_SET IS NULL)
             """
         )
@@ -1395,7 +1603,7 @@ class ProcessRepository:
             f"""
             SELECT EVENT_ID, MIN(EVENT_TIME) AS start_time
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND (SAMPLE_SET = 'ORIGINAL' OR SAMPLE_SET IS NULL)
             GROUP BY EVENT_ID
             """
@@ -1413,7 +1621,7 @@ class ProcessRepository:
             SELECT EVENT_ID,
                    LISTAGG(STEP, '->') WITHIN GROUP (ORDER BY EVENT_TIME, STEP_ID) AS journey_path
             FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND (SAMPLE_SET = 'ORIGINAL' OR SAMPLE_SET IS NULL)
             GROUP BY EVENT_ID
             """
@@ -1427,7 +1635,7 @@ class ProcessRepository:
     ) -> None:
         if not event_ids or sample_set.is_original:
             return
-        safe_pid = esc(project_id)
+        safe_pid = _pid(project_id)
         batch_size = 200
         for start in range(0, len(event_ids), batch_size):
             batch = event_ids[start : start + batch_size]
@@ -1438,7 +1646,7 @@ class ProcessRepository:
                     (PROJECT_ID, EVENT_ID, STEP, STEP_ID, EVENT_TIME, META_1, META_2, META_3, SAMPLE_SET)
                 SELECT PROJECT_ID, EVENT_ID, STEP, STEP_ID, EVENT_TIME, META_1, META_2, META_3, '{sample_set.value}'
                 FROM JOURNEYS
-                WHERE PROJECT_ID = '{safe_pid}'
+                WHERE PROJECT_ID = {safe_pid}
                 AND (SAMPLE_SET = 'ORIGINAL' OR SAMPLE_SET IS NULL)
                 AND EVENT_ID IN ({in_list})
                 """
@@ -1450,7 +1658,7 @@ class ProcessRepository:
         await self.db.execute(
             f"""
             DELETE FROM JOURNEYS
-            WHERE PROJECT_ID = '{esc(project_id)}'
+            WHERE PROJECT_ID = {_pid(project_id)}
             AND SAMPLE_SET = '{sample_set.value}'
             """
         )

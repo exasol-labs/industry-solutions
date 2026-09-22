@@ -9,9 +9,9 @@ import type { ProcessGraph } from '../types'
 const graph: ProcessGraph = {
   steps: {},
   transitions: [
-    { fromStep: 'A', toStep: 'B', occurrences: 100, avgSecs: 60, minSecs: 10, maxSecs: 120, stdDevSecs: 5 },
-    { fromStep: 'A', toStep: 'C', occurrences: 40, avgSecs: null, minSecs: null, maxSecs: null, stdDevSecs: null },
-    { fromStep: 'B', toStep: 'B', occurrences: 7, avgSecs: 30, minSecs: 30, maxSecs: 30, stdDevSecs: 0 },
+    { fromStep: 'A', toStep: 'B', occurrences: 100, avgSecs: 60, medianSecs: 55, minSecs: 10, maxSecs: 120, stdDevSecs: 5 },
+    { fromStep: 'A', toStep: 'C', occurrences: 40, avgSecs: null, medianSecs: null, minSecs: null, maxSecs: null, stdDevSecs: null },
+    { fromStep: 'B', toStep: 'B', occurrences: 7, avgSecs: 30, medianSecs: 30, minSecs: 30, maxSecs: 30, stdDevSecs: 0 },
   ],
 }
 
@@ -42,7 +42,7 @@ describe('TransitionTablePanel', () => {
     expect(screen.getByText('71%')).toBeInTheDocument()
     // A→C has no time stats → em dashes.
     const acRow = bodyRows().find((r) => r.textContent?.includes('C')) as HTMLElement
-    expect(within(acRow).getAllByText('—').length).toBe(4) // avg/min/max/std
+    expect(within(acRow).getAllByText('—').length).toBe(5) // avg/median/min/max/std
     // A→B journey share = 100 / 200 = 50%.
     expect(screen.getByText('50%')).toBeInTheDocument()
   })
@@ -72,12 +72,12 @@ describe('TransitionTablePanel', () => {
     const tsv = writeText.mock.calls[0][0] as string
     // A tab-separated header row …
     expect(tsv.split('\n')[0]).toBe(
-      'From\tTo\tCount\t% Outgoing\tJourney %\tAvg (s)\tMin (s)\tMax (s)\tStd Dev (s)',
+      'From\tTo\tCount\t% Outgoing\tJourney %\tAvg (s)\tMedian (s)\tMin (s)\tMax (s)\tStd Dev (s)',
     )
     // … the top (Count-sorted) row with raw seconds …
-    expect(tsv).toContain('A\tB\t100\t71.43\t50\t60\t10\t120\t5')
+    expect(tsv).toContain('A\tB\t100\t71.43\t50\t60\t55\t10\t120\t5')
     // … and blank cells where a time stat is missing (A→C).
-    expect(tsv).toContain('A\tC\t40\t28.57\t20\t\t\t\t')
+    expect(tsv).toContain('A\tC\t40\t28.57\t20\t\t\t\t\t')
     // Button flips to a confirmation.
     expect(screen.getByText('✓ Copied')).toBeInTheDocument()
   })

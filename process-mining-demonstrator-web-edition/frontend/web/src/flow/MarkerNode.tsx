@@ -4,6 +4,8 @@ import { END_ARROW_COLOR, START_ARROW_COLOR } from '../graph/colors'
 
 export interface MarkerData extends Record<string, unknown> {
   kind: 'start' | 'end'
+  /** Left-to-right layout: draw the arrow pointing right instead of down. */
+  horizontal?: boolean
 }
 
 /** Geometry from `drawStartArrow` / `drawEndArrow`: 46 pt stem, 15 pt head,
@@ -12,41 +14,42 @@ export const MARKER_W = 30
 export const MARKER_H = 60
 
 function MarkerNodeComponent({ data }: NodeProps) {
-  const { kind } = data as MarkerData
+  const { kind, horizontal } = data as MarkerData
   const color = kind === 'start' ? START_ARROW_COLOR : END_ARROW_COLOR
 
-  // Both markers point downward (matching drawStartArrow / drawEndArrow): the dot
-  // sits at the top and the arrowhead at the bottom. The start marker is placed
-  // above a node so it points into it; the end marker is placed below a node so
-  // it points away from it — same glyph, opposite placement.
-  const cx = MARKER_W / 2
-  const dotY = 7
-  const tipY = MARKER_H
-  const headBaseY = MARKER_H - 15
-  const stemFrom = dotY + 9
+  // The glyph points along the flow: downward for a top-to-bottom map, rightward for a
+  // left-to-right one — dot at the tail, arrowhead at the tip. A start marker is placed
+  // before the node so it points into it; an end marker after it so it points away —
+  // same glyph, opposite placement (handled by the caller).
+  const long = MARKER_H
+  const cross = MARKER_W
+  const half = cross / 2
+  const dot = 7
+  const tip = long
+  const headBase = long - 15
+  const stemFrom = dot + 9
 
   return (
     <svg
-      width={MARKER_W}
-      height={MARKER_H}
+      width={horizontal ? long : cross}
+      height={horizontal ? cross : long}
       style={{ overflow: 'visible', pointerEvents: 'none' }}
       aria-hidden
     >
       <g style={{ filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.35))' }}>
-        <line
-          x1={cx}
-          y1={stemFrom}
-          x2={cx}
-          y2={headBaseY}
-          stroke={color}
-          strokeWidth={4}
-          strokeLinecap="round"
-        />
-        <polygon
-          points={`${cx},${tipY} ${cx - 13},${headBaseY} ${cx + 13},${headBaseY}`}
-          fill={color}
-        />
-        <circle cx={cx} cy={dotY} r={7} fill={color} />
+        {horizontal ? (
+          <>
+            <line x1={stemFrom} y1={half} x2={headBase} y2={half} stroke={color} strokeWidth={4} strokeLinecap="round" />
+            <polygon points={`${tip},${half} ${headBase},${half - 13} ${headBase},${half + 13}`} fill={color} />
+            <circle cx={dot} cy={half} r={7} fill={color} />
+          </>
+        ) : (
+          <>
+            <line x1={half} y1={stemFrom} x2={half} y2={headBase} stroke={color} strokeWidth={4} strokeLinecap="round" />
+            <polygon points={`${half},${tip} ${half - 13},${headBase} ${half + 13},${headBase}`} fill={color} />
+            <circle cx={half} cy={dot} r={7} fill={color} />
+          </>
+        )}
       </g>
     </svg>
   )

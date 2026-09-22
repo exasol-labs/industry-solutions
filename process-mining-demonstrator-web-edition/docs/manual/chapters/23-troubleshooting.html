@@ -306,6 +306,14 @@
 
 <div class="note"><strong>Note</strong> Saving any change to a connection, changing its assignments, or deleting it immediately disconnects every user currently using it. That is intentional — a revoked assignment must take effect at once — but it means a connection can drop out from under you while you work.</div>
 
+<h3 id="ch23-db-idle">23.3.7 &ldquo;Unable to load data&rdquo; after the page has been idle</h3>
+
+<p><b>Symptom.</b> After the browser has been left open and idle for a while — or after an automatic idle sign-out and a fresh sign-in — the first action (a refresh, opening a project, loading a chart) fails with <i>&ldquo;Unable to load data&rdquo;</i>, and in older builds you had to reconnect the connection and reselect the project before anything worked again.</p>
+
+<p><b>Cause.</b> The backend keeps one long-lived database session per connection. A network device between the server and the database — very commonly the <code>host.docker.internal</code> NAT when the database is reached from inside a container — silently drops a socket that has sat idle, while the backend still believes the session is open. The next statement then meets a dead socket and the driver raises <i>&ldquo;Exasol connection was closed&rdquo;</i>.</p>
+
+<p><b>Fix.</b> None is needed on current builds. The backend now detects a dropped-socket error, transparently reopens the connection and retries the statement once, so the action simply succeeds. A genuine query error (bad SQL, a missing object) is <em>not</em> retried — it surfaces immediately as before. Only if the reopen itself fails (the database is genuinely down or the credentials no longer work) will you see a connection error, and then the remedies in 23.3.1 apply. If you are on an older build and still see this, reconnect the connection once; upgrading removes the need.</p>
+
 <h2 id="ch23-map">23.4 The process map is empty or wrong</h2>
 
 <h3 id="ch23-map-empty">23.4.1 No nodes appear</h3>

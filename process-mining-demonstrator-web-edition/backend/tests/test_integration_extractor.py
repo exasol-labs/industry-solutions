@@ -66,7 +66,7 @@ def test_file_extractor_writes_normalised_journeys_rows(env):
     assert len(rows) == 2
 
     a = rows[0]
-    assert a["PROJECT_ID"] == "RETAIL"
+    assert a["PROJECT_ID"] == 1  # allocated SMALLINT
     # EVENT_ID is the MD5 digest of the raw case id, never the raw value itself.
     assert a["EVENT_ID"] == _md5("20253471")
     assert a["STEP"] == "view"
@@ -162,7 +162,7 @@ def test_run_creates_project_and_step_definitions(env):
 
     # The project row is created.
     assert mem.tables["MINING"]["PROJECTS"]["rows"] == [
-        {"PROJECT_ID": "RETAIL", "TITLE": "RETAIL", "DESCRIPTION": ""}]
+        {"PROJECT_ID": 1, "TITLE": "RETAIL", "DESCRIPTION": "", "TITLE_SHORT": "RETAIL"}]
     # One STEPS definition per distinct step, with a shape + colour + zero score.
     steps = {r["STEP"]: r for r in mem.tables["MINING"]["STEPS"]["rows"]}
     assert set(steps) == {"view", "basket"}  # LINE_A → view, LINE_B → basket
@@ -178,9 +178,9 @@ def test_existing_project_and_steps_are_not_recreated(env):
     (config.INTEGRATION_FILES_DIR / "access.log").write_text(LINE_A + "\n")  # step "view"
     mem = InMemoryIngestBackend()
     mem.create_table("MINING", "PROJECTS", extractors_mod._PROJECTS_COLUMNS, ["PROJECT_ID"])
-    mem.insert("MINING", "PROJECTS", ["PROJECT_ID"], [["RETAIL"]])
+    mem.insert("MINING", "PROJECTS", ["PROJECT_ID", "TITLE_SHORT"], [[1, "RETAIL"]])
     mem.create_table("MINING", "STEPS", extractors_mod._STEPS_COLUMNS, ["PROJECT_ID", "STEP"])
-    mem.insert("MINING", "STEPS", ["PROJECT_ID", "STEP"], [["RETAIL", "view"]])
+    mem.insert("MINING", "STEPS", ["PROJECT_ID", "STEP"], [[1, "view"]])
 
     ext = extractors_mod.FileExtractor(path="access.log", encoding="utf-8", fields=FIELDS, project_id="RETAIL")
     res = asyncio.run(AbstractionLayer().run(user="dev", extractor=ext, backend=mem, schema="MINING"))
@@ -198,7 +198,7 @@ def test_run_creates_meta_titles(env):
     ext = extractors_mod.FileExtractor(path="access.log", encoding="utf-8", fields=fields, project_id="RETAIL")
     asyncio.run(AbstractionLayer().run(user="dev", extractor=ext, backend=mem, schema="MINING"))
     assert mem.tables["MINING"]["METAS"]["rows"] == [{
-        "PROJECT_ID": "RETAIL", "META_1_TITLE": "Book ID", "META_2_TITLE": "", "META_3_TITLE": "",
+        "PROJECT_ID": 1, "META_1_TITLE": "Book ID", "META_2_TITLE": "", "META_3_TITLE": "",
     }]
 
 

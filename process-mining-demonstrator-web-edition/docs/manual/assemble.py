@@ -25,7 +25,9 @@ PARTS = [
     (3, "Part III", "Administration", range(12, 16)),
     (4, "Part IV", "The Integration Console", range(16, 21)),
     (5, "Part V", "Reference", range(21, 25)),
-    (6, "Part VI", "Actions", range(25, 99)),
+    (6, "Part VI", "Actions", range(25, 26)),
+    (7, "Part VII", "The API Server - Event Receiver", range(26, 27)),
+    (8, "Part VIII", "The MCP Server", range(27, 99)),
 ]
 
 DATE = datetime.date.today().strftime("%d %B %Y")
@@ -151,11 +153,13 @@ def build_html(chapters, page_map=None):
   independent verification.</div>
 
   <h2>How this manual is organised</h2>
-  <p>The manual is divided into five parts. <em>Part I</em> introduces process mining and
+  <p>The manual is divided into seven parts. <em>Part I</em> introduces process mining and
   gets you to your first process map. <em>Part II</em> covers the analysis application in
   depth. <em>Part III</em> is for administrators. <em>Part IV</em> covers loading your own
   data through the integration console. <em>Part V</em> is reference material: the data
-  model, the extractor API, troubleshooting and a glossary.</p>
+  model, the extractor API, troubleshooting and a glossary. <em>Part VI</em> covers Actions,
+  the business-readable queries you attach to process-map nodes. <em>Part VII</em> covers the
+  API Server - Event Receiver, the push API for logging events from an external program.</p>
 
   <h2>Conventions</h2>
   <dl>

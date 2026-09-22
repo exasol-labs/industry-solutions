@@ -9,7 +9,7 @@ app can offer drill-down.
 
 from __future__ import annotations
 
-import uuid
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -71,8 +71,27 @@ def _schema_of(body_schema: str, conn) -> str:
     return schema
 
 
+def _next_project_id_sync(connection, schema: str) -> int:
+    """Next free SMALLINT PROJECT_ID on ``connection``'s ``schema`` (1 if PROJECTS is
+    absent/empty). Runs in a worker thread — the driver calls are blocking."""
+    from ..db.materialize import _open_conn
+    from ..db.schema_ddl import _quote_ident
+
+    raw, run = _open_conn(connection)
+    try:
+        try:
+            run(f"OPEN SCHEMA {_quote_ident(schema)}")
+            rows = run("SELECT COALESCE(MAX(PROJECT_ID), 0) FROM PROJECTS")
+            mx = int(rows[0][0]) if rows and rows[0] and rows[0][0] is not None else 0
+        except Exception:  # noqa: BLE001 — PROJECTS not provisioned yet → start at 1
+            mx = 0
+        return mx + 1
+    finally:
+        raw.close()
+
+
 @router.post("/projects/{project_id}/aggregate")
-async def create_aggregate(project_id: str, body: AggregateBody) -> dict[str, Any]:
+async def create_aggregate(project_id: int, body: AggregateBody) -> dict[str, Any]:
     _require_developer()
 
     # The source and BOTH targets must be connections assigned to the caller (IDOR).
@@ -93,8 +112,18 @@ async def create_aggregate(project_id: str, body: AggregateBody) -> dict[str, An
     hi_conn = _resolve(hi_conn_id)
     det_conn = _resolve(det_conn_id)
 
-    hi_pid = f"agg_{uuid.uuid4().hex[:12]}"
-    det_pid = f"aggd_{uuid.uuid4().hex[:12]}"
+    # PROJECT_ID is a SMALLINT now: allocate the next free id on each target schema.
+    # If the detail lands on the same connection+schema as the high-level, offset it by
+    # one so the two don't collide. TITLE_SHORT marks the kind for the sidebar:
+    # 'Σ…' = high-level (shown with a Σ badge), '#…' = detail (hidden until drilled).
+    hi_schema = _schema_of(body.highLevel.targetSchema, hi_conn)
+    det_schema = _schema_of(body.detail.targetSchema, det_conn)
+    hi_id = await asyncio.to_thread(_next_project_id_sync, hi_conn, hi_schema)
+    det_id = await asyncio.to_thread(_next_project_id_sync, det_conn, det_schema)
+    if (det_conn.id, det_schema) == (hi_conn.id, hi_schema) and det_id == hi_id:
+        det_id = hi_id + 1
+    hi_pid, det_pid = hi_id, det_id
+    hi_short, det_short = f"Σ{hi_id}", f"#{det_id}"
 
     try:
         await materialize_aggregate(
@@ -102,8 +131,8 @@ async def create_aggregate(project_id: str, body: AggregateBody) -> dict[str, An
             source_project_id=project_id,
             members=members,
             sigma=sigma,
-            high_level=Target(hi_conn, _schema_of(body.highLevel.targetSchema, hi_conn), True, hi_pid, body.highLevel.name.strip()),
-            detail=Target(det_conn, _schema_of(body.detail.targetSchema, det_conn), True, det_pid, body.detail.name.strip()),
+            high_level=Target(hi_conn, hi_schema, True, hi_pid, body.highLevel.name.strip(), hi_short),
+            detail=Target(det_conn, det_schema, True, det_pid, body.detail.name.strip(), det_short),
         )
     except HTTPException:
         raise
@@ -154,7 +183,7 @@ def _source_filter(f: FilterSpec) -> FilterSpec:
     )
 
 
-async def _load_source_graph(conn, source_project_id: str, f: FilterSpec) -> tuple[Any, int]:
+async def _load_source_graph(conn, source_project_id: int, f: FilterSpec) -> tuple[Any, int]:
     """Load the ORIGINAL source project's process graph under the same (journey-level) filter
     as the high-level view, so the numbers match. Reuses the live session when it's already
     on that connection, else opens a headless one."""
@@ -177,7 +206,7 @@ async def _load_source_graph(conn, source_project_id: str, f: FilterSpec) -> tup
 
 
 @router.post("/projects/{project_id}/aggregate-drill")
-async def aggregate_drill(project_id: str, body: DrillBody) -> dict[str, Any]:
+async def aggregate_drill(project_id: int, body: DrillBody) -> dict[str, Any]:
     """The ORIGINAL source project's process graph + each aggregate's member steps, so the
     app can expand a Σ node **in place** using the real, un-aggregated numbers (the same
     figures the non-aggregated flowchart shows). ``project_id`` is the high-level map."""
@@ -204,7 +233,7 @@ async def aggregate_drill(project_id: str, body: DrillBody) -> dict[str, Any]:
 
 
 @router.get("/projects/{project_id}/aggregates")
-async def list_aggregates(project_id: str, connectionId: str = "") -> dict[str, Any]:
+async def list_aggregates(project_id: int, connectionId: str = "") -> dict[str, Any]:
     """Aggregate links whose high-level project is this (connection, project) — feeds the
     app's Σ 'drill down'. Any user assigned to the connection may read them."""
     _require_assigned(connectionId)
@@ -270,7 +299,7 @@ def _link_record(hi_conn_id: str, hi_pid: str, sigma: str, det_conn_id: str, det
 
 
 @router.post("/projects/{project_id}/aggregate-set")
-async def create_aggregate_set(project_id: str, body: AggregateSetBody) -> dict[str, Any]:
+async def create_aggregate_set(project_id: int, body: AggregateSetBody) -> dict[str, Any]:
     """Create ONE high-level map for the source ``project_id`` collapsing several aggregate
     groups (a Σ step each), plus one detail project per group (each to its own target)."""
     _require_developer()
@@ -290,8 +319,23 @@ async def create_aggregate_set(project_id: str, body: AggregateSetBody) -> dict[
     hi_conn_id = (body.highLevel.targetConnectionId or body.connectionId).strip()
     _require_assigned(hi_conn_id)
     hi_conn = _resolve(hi_conn_id)
-    hi_pid = f"agg_{uuid.uuid4().hex[:12]}"
-    hi_target = Target(hi_conn, _schema_of(body.highLevel.targetSchema, hi_conn), True, hi_pid, body.highLevel.name.strip())
+
+    # PROJECT_ID is a SMALLINT: allocate a unique next-free id per (connection, schema),
+    # offsetting when several outputs land on the same schema. TITLE_SHORT marks the kind
+    # ('Σ…' high-level, '#…' detail).
+    allocated: dict[tuple[str, str], int] = {}
+
+    async def _alloc(conn, schema: str) -> int:
+        key = (conn.id, schema)
+        if key in allocated:
+            allocated[key] += 1
+        else:
+            allocated[key] = await asyncio.to_thread(_next_project_id_sync, conn, schema)
+        return allocated[key]
+
+    hi_schema = _schema_of(body.highLevel.targetSchema, hi_conn)
+    hi_pid = await _alloc(hi_conn, hi_schema)
+    hi_target = Target(hi_conn, hi_schema, True, hi_pid, body.highLevel.name.strip(), f"Σ{hi_pid}")
 
     groups: list[AggGroup] = []
     details: list[tuple[Target, frozenset[str]]] = []
@@ -300,11 +344,11 @@ async def create_aggregate_set(project_id: str, body: AggregateSetBody) -> dict[
         det_conn_id = (g.detail.targetConnectionId or body.connectionId).strip()
         _require_assigned(det_conn_id)
         det_conn = _resolve(det_conn_id)
-        det_pid = f"aggd_{uuid.uuid4().hex[:12]}"
         det_schema = _schema_of(g.detail.targetSchema, det_conn)
+        det_pid = await _alloc(det_conn, det_schema)
         sigma = g.sigmaName.strip()
         groups.append(AggGroup(frozenset(members), sigma))
-        details.append((Target(det_conn, det_schema, True, det_pid, g.detail.name.strip()), frozenset(members)))
+        details.append((Target(det_conn, det_schema, True, det_pid, g.detail.name.strip(), f"#{det_pid}"), frozenset(members)))
         stored_aggs.append({
             "sigmaStep": sigma, "members": sorted(members),
             "detailConnectionId": det_conn.id, "detailProjectId": det_pid,
@@ -338,7 +382,7 @@ async def create_aggregate_set(project_id: str, body: AggregateSetBody) -> dict[
 
 
 @router.post("/projects/{project_id}/aggregate-set/add")
-async def add_to_aggregate_set(project_id: str, body: AddAggregatesBody) -> dict[str, Any]:
+async def add_to_aggregate_set(project_id: int, body: AddAggregatesBody) -> dict[str, Any]:
     """Add one or more aggregates to the existing high-level map ``project_id`` (on
     ``connectionId``). Re-collapses the SOURCE with the union of all groups so the map stays
     one project, and writes only the new detail projects."""
@@ -358,7 +402,19 @@ async def add_to_aggregate_set(project_id: str, body: AddAggregatesBody) -> dict
     src = _resolve(aset["sourceConnectionId"])
     _require_assigned(aset["sourceConnectionId"])
     hi_conn = _resolve(aset["highLevelConnectionId"])
-    hi_target = Target(hi_conn, aset["highLevelSchema"], True, aset["highLevelProjectId"], aset["highLevelTitle"])
+    hi_pid = aset["highLevelProjectId"]
+    hi_target = Target(hi_conn, aset["highLevelSchema"], True, hi_pid, aset["highLevelTitle"], f"Σ{hi_pid}")
+
+    # New detail projects need fresh SMALLINT ids per (connection, schema).
+    allocated: dict[tuple[str, str], int] = {}
+
+    async def _alloc(conn, schema: str) -> int:
+        key = (conn.id, schema)
+        if key in allocated:
+            allocated[key] += 1
+        else:
+            allocated[key] = await asyncio.to_thread(_next_project_id_sync, conn, schema)
+        return allocated[key]
 
     # All groups (existing + new) drive the high-level collapse; only new details are written.
     groups: list[AggGroup] = [AggGroup(frozenset(_clean_members(a.get("members") or [])), a["sigmaStep"]) for a in existing]
@@ -368,11 +424,11 @@ async def add_to_aggregate_set(project_id: str, body: AddAggregatesBody) -> dict
         det_conn_id = (g.detail.targetConnectionId or aset["sourceConnectionId"]).strip()
         _require_assigned(det_conn_id)
         det_conn = _resolve(det_conn_id)
-        det_pid = f"aggd_{uuid.uuid4().hex[:12]}"
         det_schema = _schema_of(g.detail.targetSchema, det_conn)
+        det_pid = await _alloc(det_conn, det_schema)
         sigma = g.sigmaName.strip()
         groups.append(AggGroup(frozenset(members), sigma))
-        details.append((Target(det_conn, det_schema, True, det_pid, g.detail.name.strip()), frozenset(members)))
+        details.append((Target(det_conn, det_schema, True, det_pid, g.detail.name.strip(), f"#{det_pid}"), frozenset(members)))
         new_aggs.append({
             "sigmaStep": sigma, "members": sorted(members),
             "detailConnectionId": det_conn.id, "detailProjectId": det_pid,

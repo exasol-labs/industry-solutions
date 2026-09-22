@@ -441,24 +441,24 @@ function ConnectionsList({
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
-/** A project id marks an aggregate: "agg_" = a high-level Σ map, "aggd_" = a detail map. */
-function aggregateKind(projectId: string): 'high' | 'detail' | null {
-  if (projectId.startsWith('aggd_')) return 'detail'
-  if (projectId.startsWith('agg_')) return 'high'
+/** TITLE_SHORT marks an aggregate: 'Σ…' = a high-level Σ map, '#…' = a detail map. */
+function aggregateKind(titleShort: string): 'high' | 'detail' | null {
+  if ((titleShort || '').startsWith('#')) return 'detail'
+  if ((titleShort || '').startsWith('Σ')) return 'high'
   return null
 }
 
 /** The projects shown in the sidebar list — aggregate DETAIL projects are hidden unless
  *  "Show aggregate detail projects" is on (the currently-open project is never hidden).
  *  The list AND the header count must use this so the badge matches the rows. */
-export function visibleProjects<T extends { projectId: string }>(
+export function visibleProjects<T extends { projectId: number; titleShort: string }>(
   projects: readonly T[],
   showAggDetails: boolean,
-  selectedId: string | undefined,
+  selectedId: number | undefined,
 ): T[] {
   if (showAggDetails) return [...projects]
   return projects.filter(
-    (p) => aggregateKind(p.projectId) !== 'detail' || selectedId === p.projectId,
+    (p) => aggregateKind(p.titleShort) !== 'detail' || selectedId === p.projectId,
   )
 }
 
@@ -500,7 +500,7 @@ function ProjectsList({ onSelected }: { onSelected: () => void }) {
     <div className="card-list" style={{ maxHeight: 240 }}>
       {projects.map((project) => {
         const selected = store.selectedProject?.projectId === project.projectId
-        const agg = aggregateKind(project.projectId)
+        const agg = aggregateKind(project.titleShort)
         return (
           <button
             key={project.projectId}
@@ -544,6 +544,7 @@ const METRIC_ICONS: Record<TransitionMetric, string> = {
   Percentage: '%',
   'Journey %': '%',
   'Avg Time': '⏱',
+  'Median Time': '½',
   'Min Time': '⌄',
   'Max Time': '⌃',
   'Std Dev': '〰',
@@ -1513,7 +1514,7 @@ function KpiToggleRow({
 // mapping the admin Reporting tab manages. Power/developer/admin only.
 function PromptEditorSheet({ onClose }: { onClose: () => void }) {
   const store = useStore()
-  const projectId = store.selectedProject?.projectId ?? ''
+  const projectId = store.selectedProject?.projectId ?? 0
   const connectionId = store.connection.activeProfileId ?? ''
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)

@@ -7,14 +7,18 @@
 import { useState } from 'react'
 import { useIntegrationStatus } from '../integration/useIntegrationStatus'
 import { useRunHistory } from '../integration/runHistory'
+import { useSinkMonitor } from '../integration/useSinkMonitor'
 import { ConfirmDialog } from './ConfirmDialog'
 import { IntegrationPipeline } from './IntegrationPipeline'
 import { IntegrationStatusPanel } from './IntegrationStatusPanel'
+import { SinkMonitor } from './SinkMonitor'
 
 export function IntegrationConsole({ onShowHelp }: { onShowHelp: () => void }) {
   const { status, error } = useIntegrationStatus()
   const { runs, clear, atCap } = useRunHistory(status)
+  const { data: sinkData, flowing: sinkFlowing } = useSinkMonitor()
   const [confirmClear, setConfirmClear] = useState(false)
+  const sinks = sinkData?.sinks ?? []
 
   return (
     <div className="integration-console">
@@ -43,6 +47,24 @@ export function IntegrationConsole({ onShowHelp }: { onShowHelp: () => void }) {
       </div>
 
       <IntegrationPipeline runs={runs} live={status} />
+
+      {/* The sink-side monitor: shown only once the user has defined an Event Receiver. */}
+      {sinkData && sinks.length > 0 && (
+        <>
+          <div className="ihist-head" style={{ marginTop: 18 }}>
+            <h2 style={{ margin: 0, fontSize: 15 }}>API Server - Event Receivers</h2>
+            <span className="t-caption2 fg-tertiary">
+              {sinks.length} sink{sinks.length === 1 ? '' : 's'} ·{' '}
+              {sinkData.moduleEnabled
+                ? sinkData.supervisorRunning
+                  ? 'live'
+                  : 'module on, supervisor not running'
+                : 'module disabled'}
+            </span>
+          </div>
+          <SinkMonitor data={sinkData} flowing={sinkFlowing} />
+        </>
+      )}
 
       {confirmClear && (
         <ConfirmDialog

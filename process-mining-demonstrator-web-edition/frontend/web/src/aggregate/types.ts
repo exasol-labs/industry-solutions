@@ -18,9 +18,9 @@ export interface CreateAggregateBody {
 }
 
 export interface CreateAggregateResult {
-  highLevelProjectId: string
+  highLevelProjectId: number
   highLevelConnectionId: string
-  detailProjectId: string
+  detailProjectId: number
   detailConnectionId: string
   sigmaStep: string
 }
@@ -47,12 +47,12 @@ export interface AddAggregatesBody {
 }
 
 export interface AggregateSetResult {
-  highLevelProjectId: string
+  highLevelProjectId: number
   highLevelConnectionId: string
   aggregates: {
     sigmaStep: string
     detailConnectionId: string
-    detailProjectId: string
+    detailProjectId: number
   }[]
 }
 
@@ -60,8 +60,8 @@ export interface AggregateSetResult {
  *  offer drill-down on the Σ node. */
 export interface AggregateLink {
   connectionId: string
-  projectId: string
+  projectId: number
   sigmaStep: string
   detailConnectionId: string
-  detailProjectId: string
+  detailProjectId: number
 }

@@ -26,7 +26,7 @@ export function RunSourceDialog({
   const linked = Boolean(cfg.sourceTypeId)
 
   // Where this source last imported to, remembered server-side by the run endpoint.
-  const lastRun = (cfg.lastRun ?? {}) as { connectionId?: string; projectId?: string }
+  const lastRun = (cfg.lastRun ?? {}) as { connectionId?: string; titleShort?: string }
   const lastConnection = store.connections.some((c) => c.id === lastRun.connectionId)
     ? (lastRun.connectionId as string)
     : '' // dropped: an assignment can be revoked between runs
@@ -46,7 +46,7 @@ export function RunSourceDialog({
   const [picked, setPicked] = useState(NEW_PROJECT)
   const [newProject, setNewProject] = useState('')
   const projectId = picked || newProject
-  const existing = projects?.find((p) => p.projectId === picked)
+  const existing = projects?.find((p) => p.titleShort === picked)
 
   // Delta upload: import only what was appended since the last run. Default on — a
   // second run should top the project up, not store the whole file again.
@@ -89,7 +89,7 @@ export function RunSourceDialog({
     if (!connectionId) return
     // Only restore the remembered project onto the connection it was imported into — the
     // same id may not exist, or may mean something else, in another schema.
-    const remembered = connectionId === lastRun.connectionId ? (lastRun.projectId ?? '') : ''
+    const remembered = connectionId === lastRun.connectionId ? (lastRun.titleShort ?? '') : ''
     let alive = true
     void (async () => {
       try {
@@ -102,7 +102,7 @@ export function RunSourceDialog({
         if (!remembered) return
         // Still there → preselect it. Gone (deleted since) → keep the id in the
         // new-project field rather than silently dropping what the user last used.
-        if (r.ok && r.projects.some((p) => p.projectId === remembered)) setPicked(remembered)
+        if (r.ok && r.projects.some((p) => p.titleShort === remembered)) setPicked(remembered)
         else setNewProject(remembered)
       } catch (e) {
         if (!alive) return
@@ -227,9 +227,9 @@ export function RunSourceDialog({
         >
           <option value={NEW_PROJECT}>＋ New project…</option>
           {(projects ?? []).map((p) => (
-            <option key={p.projectId} value={p.projectId}>
-              {p.projectId}
-              {p.title && p.title !== p.projectId ? ` — ${p.title}` : ''}
+            <option key={p.projectId} value={p.titleShort}>
+              {p.titleShort}
+              {p.title && p.title !== p.titleShort ? ` — ${p.title}` : ''}
             </option>
           ))}
         </select>
@@ -251,17 +251,18 @@ export function RunSourceDialog({
 
       {picked === NEW_PROJECT ? (
         <label className="col" style={{ gap: 4 }}>
-          <span className="t-caption fg-secondary">New project id</span>
+          <span className="t-caption fg-secondary">New project code</span>
           <input
             className="text-input"
             value={newProject}
             onChange={(e) => setNewProject(e.target.value)}
-            placeholder="e.g. RETAIL-DEMO"
+            placeholder="e.g. RETAIL"
+            maxLength={10}
             autoFocus
           />
           <span className="t-caption2 fg-tertiary">
-            Written into JOURNEYS.PROJECT_ID for every event. The PROJECTS row is created
-            for you.
+            A short code (→ PROJECTS.TITLE_SHORT). A new integer PROJECT_ID is allocated,
+            or the existing project with this code is topped up.
           </span>
         </label>
       ) : (

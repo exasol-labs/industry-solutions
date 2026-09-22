@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
@@ -86,7 +87,7 @@ class ReportPromptBody(BaseModel):
 
 
 @router.get("/projects/{project_id}/report-prompt")
-async def get_report_prompt(project_id: str, connectionId: str = "") -> dict[str, str]:
+async def get_report_prompt(project_id: int, connectionId: str = "") -> dict[str, str]:
     """The report analysis prompt stored for this (connection, project), or "" if none.
     Power/developer/admin only, and only for a connection assigned to the caller — it is the
     same prompt the admin Reporting tab manages."""
@@ -96,7 +97,7 @@ async def get_report_prompt(project_id: str, connectionId: str = "") -> dict[str
 
 
 @router.put("/projects/{project_id}/report-prompt")
-async def put_report_prompt(project_id: str, body: ReportPromptBody) -> dict[str, str]:
+async def put_report_prompt(project_id: int, body: ReportPromptBody) -> dict[str, str]:
     """Upsert the report analysis prompt for this (connection, project); an empty prompt
     clears it (the app's default template is then used)."""
     _require_power_or_developer()
@@ -131,7 +132,7 @@ def _annotate_note(note: ProcessNote) -> ProcessNote:
 
 
 @router.get("/projects/{project_id}/notes", response_model=list[ProcessNote])
-async def list_notes(project_id: str) -> list[ProcessNote]:
+async def list_notes(project_id: int) -> list[ProcessNote]:
     require_connection()
     r = repo()
     await r.ensure_notes_table()
@@ -140,7 +141,7 @@ async def list_notes(project_id: str) -> list[ProcessNote]:
 
 
 @router.put("/projects/{project_id}/notes", response_model=ProcessNote)
-async def save_note(project_id: str, note: ProcessNote) -> ProcessNote:
+async def save_note(project_id: int, note: ProcessNote) -> ProcessNote:
     require_connection()
     r = repo()
     await r.ensure_notes_table()
@@ -177,7 +178,7 @@ class NoteUpdateBody(BaseModel):
 
 
 @router.post("/projects/{project_id}/notes/{note_id}", response_model=ProcessNote)
-async def update_note(project_id: str, note_id: str, body: NoteUpdateBody) -> ProcessNote:
+async def update_note(project_id: int, note_id: str, body: NoteUpdateBody) -> ProcessNote:
     """Append a comment and/or toggle resolved on a note — allowed for anyone who
     can see it (author, a shared note, or an unowned one). Only the author may
     change importance or the shared flag. The existing history is never rewritten."""
@@ -226,7 +227,7 @@ async def update_note(project_id: str, note_id: str, body: NoteUpdateBody) -> Pr
 
 
 @router.delete("/projects/{project_id}/notes/{note_id}")
-async def delete_note(project_id: str, note_id: str) -> dict[str, bool]:
+async def delete_note(project_id: int, note_id: str) -> dict[str, bool]:
     require_connection()
     await repo().delete_note(note_id, project_id, current_user() or "")
     return {"ok": True}
@@ -242,7 +243,7 @@ class CreateSampleRequest(BaseModel):
 
 
 @router.get("/projects/{project_id}/samples")
-async def sample_counts(project_id: str) -> dict[str, object]:
+async def sample_counts(project_id: int) -> dict[str, object]:
     require_connection()
     r = repo()
     await r.ensure_sample_set_column()
@@ -255,7 +256,7 @@ async def sample_counts(project_id: str) -> dict[str, object]:
 
 
 @router.post("/projects/{project_id}/samples")
-async def create_sample(project_id: str, request: CreateSampleRequest) -> dict[str, object]:
+async def create_sample(project_id: int, request: CreateSampleRequest) -> dict[str, object]:
     require_connection()
     _require_power()
     if request.sampleSet.is_original:
@@ -263,6 +264,64 @@ async def create_sample(project_id: str, request: CreateSampleRequest) -> dict[s
 
     r = repo()
     await r.ensure_sample_set_column()
+
+    # Per-connection opt-in: build the whole sample INSIDE the database — one
+    # set-based INSERT … SELECT, no extract of every EVENT_ID to the app and no
+    # thousands of batched re-inserts. Essential for very large logs (the app-side
+    # path times out at ~500M events). Falls back to the app path when the flag is
+    # off or the connection (with secrets) can't be resolved.
+    db = current_db()
+    conn = (
+        security_store.get_connection(db.active_profile_id, with_secrets=True)
+        if db.active_profile_id
+        else None
+    )
+    use_indb = bool(conn and conn.use_indb_sampling)
+    # One line that answers "why was sampling slow?": which path, and the exact inputs
+    # to the decision. App-side (extract every id → pick → batched insert) is the slow
+    # one on large logs; if this says app-side, the connection's flag isn't set.
+    logx.info(
+        f"Sampling path: {'in-database' if use_indb else 'app-side'} — "
+        f"connection={db.active_profile_id!r}, resolved={conn is not None}, "
+        f"flag={getattr(conn, 'use_indb_sampling', None)}, "
+        f"count={request.count}, method={request.method.value}, slot={request.sampleSet.value}",
+        operation="sampling",
+    )
+    if use_indb:
+        from ..db.schema_ddl import build_sample_in_db
+
+        started = time.perf_counter()
+        result = await build_sample_in_db(
+            host=conn.host, port=conn.port, username=conn.username,
+            password=conn.password, schema=conn.schema,
+            use_tls=conn.use_tls, cert_mode=conn.cert_mode,
+            fingerprint=conn.fingerprint, min_rsa_bits=conn.min_rsa_bits,
+            project_id=project_id, count=request.count,
+            method=request.method.value, sample_set=request.sampleSet,
+        )
+        logx.info(
+            f"In-database sampling: project={project_id} slot={request.sampleSet.value} "
+            f"method={request.method.value} journeys={result.get('journeys', 0)} "
+            f"seconds={time.perf_counter() - started:.1f} ok={result['ok']}",
+            operation="sampling",
+        )
+        if not result["ok"]:
+            raise HTTPException(
+                status_code=502, detail=result["error"] or "In-database sampling failed."
+            )
+        if result["journeys"] == 0:
+            raise HTTPException(
+                status_code=404, detail="No journeys found in the original data."
+            )
+        store.set(
+            f"sampling.method.{request.sampleSet.value}.{project_id}", request.method.value
+        )
+        counts = await r.load_sample_journey_counts(project_id)
+        return {"counts": counts, "created": result["journeys"]}
+
+    # App-side path (default): extract ids → pick in Python → batched re-insert.
+    # The extract of every distinct EVENT_ID is what makes this slow on large logs,
+    # even for a tiny sample — enable the connection's in-database flag to avoid it.
     await r.delete_sample(project_id, request.sampleSet)
 
     if request.method is SamplingMethod.random:
@@ -289,7 +348,7 @@ async def create_sample(project_id: str, request: CreateSampleRequest) -> dict[s
 
 
 @router.delete("/projects/{project_id}/samples/{sample_set}")
-async def delete_sample(project_id: str, sample_set: SampleSet) -> dict[str, object]:
+async def delete_sample(project_id: int, sample_set: SampleSet) -> dict[str, object]:
     require_connection()
     _require_power()
     r = repo()
@@ -404,7 +463,7 @@ class ConformanceRequest(BaseModel):
 
 @router.post("/projects/{project_id}/conformance")
 async def conformance(
-    project_id: str, request: ConformanceRequest
+    project_id: int, request: ConformanceRequest
 ) -> dict[str, float | None]:
     require_connection()
     r = repo(request.filter.sampleSet)
@@ -442,7 +501,7 @@ class DocumentationRequest(BaseModel):
 
 @router.post("/projects/{project_id}/documentation")
 async def documentation(
-    project_id: str, request: DocumentationRequest
+    project_id: int, request: DocumentationRequest
 ) -> dict[str, object]:
     require_connection()
 

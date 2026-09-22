@@ -12,7 +12,7 @@ import { EMPTY_GRAPH, KPI_META } from '../types'
 const inputs = {
   graph: EMPTY_GRAPH,
   journeyCount: null,
-  durations: { minSecs: null, avgSecs: null, stdDevSecs: null, maxSecs: null },
+  durations: { minSecs: null, avgSecs: null, medianSecs: null, stdDevSecs: null, maxSecs: null },
   goodness: null,
   side: 'a' as const,
   loading: false,
@@ -28,6 +28,20 @@ describe('KpiStrip Active Sample', () => {
     render(<KpiStrip {...inputs} />)
     expect(screen.getByText('Sample 1')).toBeInTheDocument()
     expect(screen.getByText('123')).toBeInTheDocument()
+  })
+
+  it("reads side B's data source when side='b' (the standalone B-Chart)", () => {
+    // Regression: the B-Chart strip must reflect side B's sample, not side A's — else
+    // it showed A's sample and only refreshed when A's sample changed.
+    useStore.setState({
+      abDataSourceA: { kind: 'sampleSet', sampleSet: 'ORIGINAL' },
+      abDataSourceB: { kind: 'sampleSet', sampleSet: 'SAMPLE_2' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sampleCounts: { SAMPLE_2: 77 } as any,
+    })
+    render(<KpiStrip {...inputs} side="b" />)
+    expect(screen.getByText('Sample 2')).toBeInTheDocument()
+    expect(screen.getByText('77')).toBeInTheDocument()
   })
 
   it('shows Sim-A and its journey count when the source is a simulation', () => {

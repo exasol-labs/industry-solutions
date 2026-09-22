@@ -120,6 +120,8 @@ export function defaultSchemaFor(metric: TransitionMetric): EdgeColorSchema {
       return 'greenHigh'
     case 'Avg Time':
       return 'orangeScale'
+    case 'Median Time':
+      return 'orangeScale'
     case 'Min Time':
       return 'blueScale'
     case 'Max Time':

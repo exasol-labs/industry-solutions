@@ -45,8 +45,8 @@ from .structured import json_path, scalar, xml_value
 
 # The columns we populate (see backend/app/db/schema_ddl.py).
 _JOURNEYS_COLUMNS = {
-    "PROJECT_ID": ColumnType.STRING,
-    "EVENT_ID": ColumnType.STRING,
+    "PROJECT_ID": ColumnType.SMALLINT,
+    "EVENT_ID": ColumnType.HASH,  # 32-char MD5 → HASHTYPE(16 BYTE) in the DB
     "STEP": ColumnType.STRING,
     "STEP_ID": ColumnType.INT,
     "EVENT_TIME": ColumnType.TIMESTAMP,
@@ -56,13 +56,15 @@ _JOURNEYS_COLUMNS = {
     "SAMPLE_SET": ColumnType.STRING,
 }
 _PROJECTS_COLUMNS = {
-    "PROJECT_ID": ColumnType.STRING,
+    "PROJECT_ID": ColumnType.SMALLINT,
     "TITLE": ColumnType.STRING,
     "DESCRIPTION": ColumnType.STRING,
+    "TITLE_SHORT": ColumnType.STRING,
 }
 _STEPS_COLUMNS = {
-    "PROJECT_ID": ColumnType.STRING,
+    "PROJECT_ID": ColumnType.SMALLINT,
     "STEP": ColumnType.STRING,
+    "STEP_ID": ColumnType.INT,  # stable activity id; JOURNEYS.STEP_ID carries the same value
     "DESCRIPTION": ColumnType.STRING,
     "BG_COLOR": ColumnType.STRING,
     "FG_COLOR": ColumnType.STRING,
@@ -72,7 +74,7 @@ _STEPS_COLUMNS = {
     "BELONGS_TO": ColumnType.STRING,
 }
 _METAS_COLUMNS = {
-    "PROJECT_ID": ColumnType.STRING,
+    "PROJECT_ID": ColumnType.SMALLINT,
     "META_1_TITLE": ColumnType.STRING,
     "META_2_TITLE": ColumnType.STRING,
     "META_3_TITLE": ColumnType.STRING,
@@ -134,7 +136,7 @@ class FileExtractor:
         path: str,
         encoding: str,
         fields: list[dict],
-        project_id: str,
+        project_id: str,  # the TITLE_SHORT code the user typed; the int PROJECT_ID is allocated
         fmt: str = FORMAT_TEXT,
         record_path: str = "",
         lines: list[str] | None = None,
@@ -146,7 +148,8 @@ class FileExtractor:
     ) -> None:
         self._path = path
         self._encoding = encoding or "utf-8"
-        self._project_id = project_id
+        self._title_short = project_id  # the human code; PROJECT_ID is allocated in run()
+        self._project_id: int | None = None
         self._fmt = fmt if fmt in (FORMAT_TEXT, FORMAT_JSON, FORMAT_XML) else FORMAT_TEXT
         self._record_path = record_path or ""
         # Incremental (watchdog) mode: when ``lines`` is given, those exact lines are
@@ -199,6 +202,11 @@ class FileExtractor:
         # but written to no column — is available to them.
         self._compound = CompoundRules(compound)
         self._seen_steps: set[str] = set()
+        # Stable per-project activity ids (STEP name → int). Seeded from existing
+        # STEPS in run(); new names get the next id. JOURNEYS.STEP_ID and
+        # STEPS.STEP_ID both carry this id so the transition query groups on it.
+        self._step_ids: dict[str, int] = {}
+        self._next_step_id: int = 1
 
     @staticmethod
     def _compile(pattern: str):
@@ -299,6 +307,18 @@ class FileExtractor:
         session.define_table("PROJECTS", _PROJECTS_COLUMNS, keys=["PROJECT_ID"])
         session.define_table("STEPS", _STEPS_COLUMNS, keys=["PROJECT_ID", "STEP"])
 
+        # Seed the activity-id map from any steps this project already has, so a
+        # re-import reuses their ids; new step names continue from the max.
+        self._step_ids = session.existing_step_ids()
+        self._next_step_id = max(self._step_ids.values(), default=0) + 1
+
+        # Resolve the target project id: reuse the existing project with this TITLE_SHORT
+        # code (append), else allocate the next free SMALLINT. PROJECT_ID is an integer now.
+        existing_projects = session.existing_project_ids()
+        self._project_id = existing_projects.get(
+            self._title_short, max(existing_projects.values(), default=0) + 1
+        )
+
         source, total = self._raw_records()
         session.log(
             f"reading {self._path} [{self._fmt}] → {session.schema}.JOURNEYS "
@@ -344,12 +364,13 @@ class FileExtractor:
 
     def _ensure_project(self, session: IngestSession) -> bool:
         """Create the PROJECTS row for this run's project id if it isn't there yet."""
-        if (self._project_id,) in session.existing_keys("PROJECTS", ["PROJECT_ID"]):
+        if (str(self._project_id),) in session.existing_keys("PROJECTS", ["PROJECT_ID"]):
             return False
         session.push("PROJECTS", [{
-            "PROJECT_ID": self._project_id, "TITLE": self._project_id, "DESCRIPTION": "",
+            "PROJECT_ID": self._project_id, "TITLE": self._title_short,
+            "DESCRIPTION": "", "TITLE_SHORT": self._title_short,
         }])
-        session.log(f"created project {self._project_id!r}")
+        session.log(f"created project {self._title_short!r} (id {self._project_id})")
         return True
 
     def _ensure_metas(self, session: IngestSession) -> bool:
@@ -359,7 +380,7 @@ class FileExtractor:
         if not any(titles):
             return False
         session.define_table("METAS", _METAS_COLUMNS, keys=["PROJECT_ID"])
-        if (self._project_id,) in session.existing_keys("METAS", ["PROJECT_ID"]):
+        if (str(self._project_id),) in session.existing_keys("METAS", ["PROJECT_ID"]):
             return False
         session.push("METAS", [{
             "PROJECT_ID": self._project_id,
@@ -368,15 +389,25 @@ class FileExtractor:
         session.log(f"created meta titles: {', '.join(t for t in titles if t)}")
         return True
 
+    def _activity_id(self, step: str) -> int:
+        """Stable integer id for a step name, allocating the next id on first sight."""
+        sid = self._step_ids.get(step)
+        if sid is None:
+            sid = self._next_step_id
+            self._step_ids[step] = sid
+            self._next_step_id += 1
+        return sid
+
     def _ensure_steps(self, session: IngestSession) -> int:
         """Create a STEPS definition (shape + colour, zero score) for every step seen
         that doesn't already exist for this project. Returns how many were created."""
         existing = session.existing_keys("STEPS", ["PROJECT_ID", "STEP"])
-        new = [s for s in sorted(self._seen_steps) if (self._project_id, s) not in existing]
+        new = [s for s in sorted(self._seen_steps) if (str(self._project_id), s) not in existing]
         if not new:
             return 0
         session.push("STEPS", [{
-            "PROJECT_ID": self._project_id, "STEP": s, "DESCRIPTION": "",
+            "PROJECT_ID": self._project_id, "STEP": s, "STEP_ID": self._activity_id(s),
+            "DESCRIPTION": "",
             "BG_COLOR": _step_color(s), "FG_COLOR": "#ffffff", "SCORE": 0,
             "SHAPE": _step_shape(s), "END_OF_PROCESS": False, "BELONGS_TO": None,
         } for s in new])
@@ -413,7 +444,7 @@ class FileExtractor:
             # is never written in the clear — only its MD5 digest lands in JOURNEYS.
             "EVENT_ID": _md5(event_id),
             "STEP": step,
-            "STEP_ID": None,
+            "STEP_ID": self._activity_id(step),
             "EVENT_TIME": event_time,
             "META_1": metas[0],
             "META_2": metas[1],

@@ -10,7 +10,7 @@ import asyncio
 import sqlite3
 
 from app.db.repository import ProcessRepository
-from app.models import FilterSpec
+from app.models import FilterSpec, SampleSet
 
 
 class _FakeTransDB:
@@ -31,13 +31,14 @@ class _FakeTransDB:
         return type("R", (), {"rows": self._rows})()
 
 
-_ONE_EDGE = [["A", "B", 5, 1.0, 1.0, 1.0, 0.0]]
+# Columns match the SELECT: FROM, TO, CNT, AVG, MEDIAN, MIN, MAX, STDDEV.
+_ONE_EDGE = [["A", "B", 5, 1.0, 1.0, 1.0, 1.0, 0.0]]
 
 
 def test_reads_materialized_table_when_enabled():
     db = _FakeTransDB(True, rows=_ONE_EDGE)
     r = ProcessRepository(db)
-    out = asyncio.run(r.load_transitions("P", FilterSpec()))
+    out = asyncio.run(r.load_transitions(7, FilterSpec()))
     assert len(db.executed) == 1
     assert "TRANSITIONS_RAW" in db.executed[0] and "LEAD(" not in db.executed[0]
     assert out[0].fromStep == "A" and out[0].occurrences == 5
@@ -47,7 +48,7 @@ def test_reads_materialized_table_when_enabled():
 def test_falls_back_to_live_when_materialized_missing():
     db = _FakeTransDB(True, fail_first=True, rows=_ONE_EDGE)
     r = ProcessRepository(db)
-    out = asyncio.run(r.load_transitions("P", FilterSpec()))
+    out = asyncio.run(r.load_transitions(7, FilterSpec()))
     # Tried the materialised table first, then fell back to the live LEAD() query.
     assert len(db.executed) == 2
     assert "TRANSITIONS_RAW" in db.executed[0]
@@ -61,10 +62,23 @@ def test_falls_back_to_live_when_materialized_missing():
 def test_uses_live_query_when_disabled():
     db = _FakeTransDB(False, rows=[])
     r = ProcessRepository(db)
-    asyncio.run(r.load_transitions("P", FilterSpec()))
+    asyncio.run(r.load_transitions(7, FilterSpec()))
     assert len(db.executed) == 1
     assert "LEAD(" in db.executed[0] and "TRANSITIONS_RAW" not in db.executed[0]
     assert r.last_transitions_mode == "live"
+
+
+def test_sample_set_uses_live_even_when_materialized_enabled():
+    # A sample is created/rebuilt on demand and won't be in TRANSITIONS_RAW yet, so a
+    # materialised read would come back empty (blank map). Sample sets must use live.
+    db = _FakeTransDB(True, rows=_ONE_EDGE)
+    r = ProcessRepository(db)
+    r.active_sample_set = SampleSet.sample1
+    out = asyncio.run(r.load_transitions(7, FilterSpec(sampleSet=SampleSet.sample1)))
+    assert len(db.executed) == 1
+    assert "LEAD(" in db.executed[0] and "TRANSITIONS_RAW" not in db.executed[0]
+    assert r.last_transitions_mode == "live"
+    assert out[0].occurrences == 5
 
 
 def _dfg_live(con, pid, sample):

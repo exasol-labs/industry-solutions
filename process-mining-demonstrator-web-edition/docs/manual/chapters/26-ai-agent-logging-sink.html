@@ -1,0 +1,246 @@
+<section class="chapter" id="ch-ai-agent-sink" data-title="The API Server - Event Receiver" data-num="26">
+<h1><span class="chnum">26</span> The API Server - Event Receiver</h1>
+
+<p class="chintro">Every other way of getting data into the demonstrator <em>pulls</em> it: you import a file, or the watchdog reads one as it grows. The <em>API Server - Event Receiver</em> is the opposite &mdash; it is a small HTTP/HTTPS endpoint the demonstrator opens so that an external program, typically an AI agent, can <em>push</em> journey events into a project as they happen. Each sink is bound to one connection and one project, is protected by its own bearer token, auto-creates any step it has never seen, and can be watched live on a node-based monitor. This chapter explains when to reach for a sink, how an administrator turns the module on, how a developer defines a sink and reads its token, the exact JSON the endpoint accepts, the limits and error codes it enforces, the downloadable agent instructions, and the live monitor.</p>
+
+<div class="role">Requires: <b>Administrator</b> to enable the module; <b>Developer</b> (or Administrator) to define a sink and see its token, in the integration console (HTTP :8100, HTTPS :8463). The running endpoints need no human role &mdash; they authenticate the calling program with a per-sink bearer token. The module is <b>off</b> until an administrator enables it.</div>
+
+<h2 id="sink-what">26.1 What a sink is, and when to use one</h2>
+
+<p>A sink is a long-running API server that accepts journey rows over HTTP and writes them straight into a connection's <code>JOURNEYS</code> table, exactly as an import would &mdash; the same MD5 pseudonymisation of the case id, the same automatic creation of missing <code>PROJECTS</code> and <code>STEPS</code> rows, the same <code>ORIGINAL</code> sample set. What differs is the trigger and the shape of the data: instead of a file parsed in one run, a sink takes many small JSON POSTs over time, each carrying one event or a short batch of events, from a program you do not control from inside the demonstrator.</p>
+
+<p>Reach for a sink when the source of truth is a <em>live process</em> rather than a log file &mdash; most obviously an AI agent that emits a step every time it takes an action, but equally any application that can make an authenticated HTTPS request. Use a file source and the watchdog (chapters 19 and 20) instead when the data already lands in a file, or when you want the parsing, compound-step rules and delta-checkpointing that the extractor gives you. A sink does no parsing: the caller sends already-structured rows.</p>
+
+<table>
+<thead><tr><th></th><th>File import / watchdog</th><th>API Server - Event Receiver</th></tr></thead>
+<tbody>
+<tr><td>Direction</td><td>The demonstrator <b>pulls</b> from a file.</td><td>The caller <b>pushes</b> over HTTP.</td></tr>
+<tr><td>Shape of data</td><td>Raw log lines, parsed by a source type.</td><td>Structured JSON rows; no parsing.</td></tr>
+<tr><td>Destination</td><td>Any project id, chosen per run.</td><td>One fixed project per sink (its project code).</td></tr>
+<tr><td>Who may write</td><td>A signed-in developer, or the headless watchdog with stored credentials.</td><td>Any program holding the sink's bearer token.</td></tr>
+<tr><td>Unknown steps</td><td>Created automatically.</td><td>Created automatically.</td></tr>
+</tbody>
+</table>
+
+<h2 id="sink-enable">26.2 Enabling the module</h2>
+
+<p>The sink module is opt-in, like Actions. In the admin interface open the <strong>Event Receiver</strong> tab and tick <strong>Enable the API Server - Event Receiver</strong>. Toggling the switch takes effect immediately and needs no restart: the sink ports stay bound either way, but while the module is off every request is answered with <code>503</code> and nothing is written. The tab also shows how many sinks are configured and whether the sink supervisor process is running.</p>
+
+<p>Each sink listens on a fixed, pre-exposed port from a pool, so the container can publish them once. The pool is HTTP <code>8120&ndash;8129</code> and, under TLS, the paired HTTPS ports <code>8483&ndash;8492</code>. In the shipped Docker setup these are published on the host with a <code>+10000</code> offset &mdash; HTTP <code>18120&ndash;18129</code> and HTTPS <code>18483&ndash;18492</code> &mdash; so a caller outside the container uses the host port. The scheme and port that are actually live follow the deployment's TLS mode and certificate, exactly like the other surfaces (see chapter 2): with a certificate in <b>Optional</b> or <b>Required</b> mode a sink answers on its HTTPS port; otherwise on plain HTTP.</p>
+
+<div class="note"><strong>Note</strong> The module runs as its own supervisor process, one listener per sink. Adding, editing or removing a sink, or a change to the TLS mode or certificate, makes the supervisor rebind its listeners automatically &mdash; no terminal, no restart. Enabling or disabling the module does not even need a rebind.</div>
+
+<h2 id="sink-define">26.3 Defining a sink</h2>
+
+<p>A sink is a data source of a new kind, created in the integration console's <b>Sources</b> section like any other.</p>
+
+<ol class="steps">
+<li>In the console sidebar open <b>Sources</b> and press <b>&#65291;</b> to add a source. For <b>Source type</b> choose <b>API Server - Event Receiver</b>.</li>
+<li>Give the sink a <b>name</b> (how it appears in the console and the monitor).</li>
+<li>Choose the <b>Connection</b> it writes into. The dropdown lists only the connections assigned to you; the connection must have a schema. This is where the events land, using the connection's stored credentials.</li>
+<li>Enter a <b>project code</b> of 1&ndash;10 characters (the project's <code>TITLE_SHORT</code>). All of this sink's events go into the one project with that code; it is created on the first write if it does not exist, and reused if it does.</li>
+<li>Pick a <b>port</b> from the free ports in the pool. Each option shows <em>both</em> its ports &mdash; e.g. <code>HTTP 8120 &middot; HTTPS 8483</code> &mdash; so you can see what an agent will address. Ports already taken by other sinks are not offered; a sink cannot share a port.</li>
+<li>Set the <b>TLS</b> preference: ticked (the default) means agents are told to use the sink's <b>HTTPS</b> port, unticked means plain <b>HTTP</b>. This is a per-sink preference for the endpoint shown in the request and the SKILL.md; the listeners still bind whatever the deployment TLS mode allows, and the shown scheme falls back to what the deployment can actually serve, so it never advertises a port that isn't bound.</li>
+<li>Save. The confirmation screen shows the sink's <b>bearer token once</b> (see 26.4) and a link to the exact request an agent should send (see 26.6).</li>
+</ol>
+
+<p>One connection can back several sinks (each with a different project code and port), and different developers can each own sinks; you see and manage only your own. A sink whose connection is later unassigned from you, whose port falls outside the pool, or that has no project code, is quietly skipped by the supervisor rather than started.</p>
+
+<h2 id="sink-token">26.4 The bearer token</h2>
+
+<p>Each sink has one secret bearer token that the caller must send on every request. Only a <b>SHA-256 hash</b> of the token is ever stored; the plaintext is shown <b>once</b>, on the confirmation screen right after you create the sink, and cannot be retrieved afterwards. Copy it then and store it wherever the agent keeps its secrets.</p>
+
+<p>If a token is lost or leaked, open the sink in the <b>Sources</b> list and use the <b>&#128273; regenerate</b> action. Because regenerating invalidates the live token the instant it runs &mdash; locking out every agent still using the old one &mdash; it asks for confirmation first. A fresh token is then minted and shown once; the previous token stops working as soon as the supervisor rebinds (which the console triggers for you). There is deliberately no way to read an existing token back &mdash; regeneration is the only recovery.</p>
+
+<div class="warn"><strong>Handle the token like a password</strong> Anyone who holds it can write events into the sink's project for as long as the module is enabled. Send it only over the HTTPS endpoint in any real deployment, never commit it to a repository, and regenerate it if in doubt.</div>
+
+<h2 id="sink-api">26.5 The ingest API</h2>
+
+<p>A sink exposes two endpoints on its port:</p>
+
+<dl>
+<dt><code>POST /ingest</code></dt>
+<dd>Bearer-authenticated. The body is a single JSON object, or an array of them, each describing one journey event. The events are written to the sink's connection and project; any step seen for the first time is added to <code>STEPS</code> with a freshly allocated activity id, a deterministic colour and shape. Returns <code>{ingested, newSteps, projectId}</code>.</dd>
+<dt><code>GET /health</code></dt>
+<dd>Unauthenticated liveness. Returns <code>{"ok": true, "enabled": &lt;bool&gt;}</code> and nothing else &mdash; deliberately no sink name or configuration, since anyone who can reach the port sees it.</dd>
+</dl>
+
+<p>Authenticate by sending the token as a bearer credential: <code>Authorization: Bearer &lt;token&gt;</code>. Each entry recognises the following fields; only <code>eventId</code> and <code>step</code> are required.</p>
+
+<table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>eventId</code> <b>(required)</b></td><td>The journey / request id &mdash; reuse it across every event of one run. It is MD5-pseudonymised on write, so the raw value never reaches the database. Also accepted as <code>event_id</code>.</td></tr>
+<tr><td><code>step</code> <b>(required)</b></td><td>A <code>KIND:qualifier</code> naming the request or action (see below) &mdash; the whole string becomes one node on the map. An unknown step is created on the fly.</td></tr>
+<tr><td><code>description</code></td><td>The step's detail (the query run, URL fetched, recipient &hellip;), up to <b>256 characters</b>; longer text is truncated. Stored as the event's <b>Action</b> attribute (<code>META_1</code>). Also accepted as <code>meta1</code>.</td></tr>
+<tr><td><code>client</code></td><td>The calling client &mdash; <code>Claude</code>, <code>ChatGPT</code>, &hellip;. Stored as the <b>Client</b> attribute (<code>META_2</code>). Also accepted as <code>meta2</code>.</td></tr>
+<tr><td><code>user</code></td><td>The end user, if known. Stored as the <b>User</b> attribute (<code>META_3</code>). Also accepted as <code>meta3</code>.</td></tr>
+<tr><td><code>eventTime</code></td><td>ISO-8601 timestamp (a trailing <code>Z</code> is accepted). Missing or blank means &ldquo;now&rdquo; on the server. Also accepted as <code>event_time</code>.</td></tr>
+</tbody>
+</table>
+
+<p>The sink writes a per-project <code>METAS</code> row titling the three attribute columns <b>Action</b>, <b>Client</b> and <b>User</b>, so the app labels them in its Metas table and case-level filters &mdash; you can filter a project's journeys by client or user.</p>
+
+<h3 id="sink-steps">26.5.1 Naming steps: <code>KIND:qualifier</code></h3>
+
+<p>Keep the <code>step</code> KIND from a small, stable vocabulary and add the specific target after a colon, so each node is self-describing. The first event of a journey names the originating request; each later event names one action taken:</p>
+
+<ul>
+<li><code>SKILL:&lt;skill name&gt;</code> &mdash; e.g. <code>SKILL:summarize-sales</code></li>
+<li><code>TOOL:&lt;type&gt;:&lt;tool name&gt;</code> &mdash; e.g. <code>TOOL:mcp:airfield_get</code></li>
+<li><code>DATABASE:&lt;database name&gt;</code> &mdash; e.g. <code>DATABASE:sales_db</code></li>
+<li><code>WEB:&lt;external|internal&gt;</code>, <code>EMAIL:&lt;external|internal&gt;</code>, <code>FILE:&lt;local|remote&gt;</code></li>
+<li><code>APP:&lt;app name&gt;</code> &mdash; e.g. <code>APP:Slack</code></li>
+<li><code>REQUEST</code> &mdash; the first event, when the request is not itself a skill or tool call</li>
+</ul>
+
+<p>All the events in one sink land in the one project the sink is coded for; you do not send a project id, and you cannot write into another project through the same sink.</p>
+
+<h2 id="sink-example">26.6 Example request, and the SKILL.md for agents</h2>
+
+<p>A minimal call, against a TLS deployment where the sink's HTTPS port is published on the host as <code>18483</code>:</p>
+
+<pre><code>curl -sk https://YOUR-HOST:18483/ingest \
+  -H "Authorization: Bearer YOUR-SINK-TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"eventId":"req-42","step":"SKILL:summarize-sales","description":"Summarize the Q3 sales report","client":"Claude","user":"alice","eventTime":"2026-09-14T10:00:00Z"},
+    {"eventId":"req-42","step":"DATABASE:sales_db","description":"SELECT region, SUM(amount) FROM sales WHERE quarter='Q3'","client":"Claude","user":"alice","eventTime":"2026-09-14T10:00:03Z"},
+    {"eventId":"req-42","step":"EMAIL:external","description":"Send the compiled report to alice@example.com","client":"Claude","user":"alice","eventTime":"2026-09-14T10:00:09Z"}
+  ]'</code></pre>
+
+<p>You do not have to work the URL out by hand. The confirmation screen (and the <b>&#128268; details</b> action on a sink in the <b>Sources</b> list) opens the ingest-details popup: the exact endpoint URL and a tabbed <b>&ldquo;Send data to the endpoint&rdquo;</b> panel of ready-to-run examples, one per language, with the sink's URL and token already filled in. Every tab carries a shared <b>Copy</b> and <b>&#11015; Download</b> button that acts on the tab you are viewing and names the file for that language.</p>
+
+<p>Two fields in that popup make the download ready to use as-is:</p>
+
+<ul>
+<li>The <b>endpoint URL is editable and saved per sink</b>. The console auto-detects the host URL, but if agents reach the sink through a reverse proxy or a public domain, type that URL and press <b>Save</b> &mdash; it is then shown here and baked into every example on every tab.</li>
+<li>A <b>token field</b> is pre-filled the moment you create or regenerate the sink; otherwise paste the token you saved. Whatever is in the field is embedded into every example. The token itself is never stored (only its hash is kept), so re-opening the popup in a later session needs a paste &mdash; the app says so.</li>
+</ul>
+
+<h3 id="sink-code">26.6.1 Ready-to-run code in your language</h3>
+
+<p>The panel offers the same call in nine forms, sorted alphabetically along the tabs:
+<b>AI Agents (SKILL.md)</b>, <b>C#</b>, <b>CLI (curl)</b>, <b>Go</b>, <b>JavaScript</b>, <b>Mojo</b>, <b>Python</b>, <b>Rust</b> and <b>TypeScript</b>. Pick a tab, then <b>Copy</b> or <b>Download</b> it &mdash; the downloaded file is named for the language (<code>send_events.py</code>, <code>send_events.sh</code>, <code>SendEvents.cs</code>, <code>send_events.rs</code>, <code>send_events.go</code>, <code>send_events.mjs</code>, <code>send_events.ts</code>, <code>send_events.mojo</code>) or <code>SKILL.md</code> for the agent tab. Each example already contains the endpoint URL and the bearer token from the fields above, the two headers, and the same journey body; when the endpoint is HTTPS (the certificate is self-signed by default) each also disables certificate verification the way that language expects &mdash; <code>curl -k</code>, Python <code>verify=False</code>, C#&rsquo;s <code>ServerCertificateCustomValidationCallback</code>, Rust&rsquo;s <code>danger_accept_invalid_certs</code>, Go&rsquo;s <code>InsecureSkipVerify</code> &mdash; so it runs against a fresh deployment without edits.</p>
+
+<p>The <b>Python</b> tab, for example, uses <code>requests</code>:</p>
+
+<pre><code>import requests
+
+URL = "https://YOUR-HOST:18483/ingest"
+TOKEN = "YOUR-SINK-TOKEN"
+
+events = [
+    {"eventId": "req-42", "step": "SKILL:summarize-sales",
+     "description": "Summarize the Q3 sales report and email it to the requester",
+     "client": "Claude", "user": "alice", "eventTime": "2026-09-13T10:00:00"},
+    # … one object per action, all sharing the eventId …
+]
+
+resp = requests.post(
+    URL,
+    headers={"Authorization": f"Bearer {TOKEN}",
+             "Content-Type": "application/json"},
+    json=events,
+    verify=False,  # self-signed cert — point at your CA bundle in production
+)
+resp.raise_for_status()
+print(resp.json())</code></pre>
+
+<p>The other tabs are equally complete: <b>Go</b> uses <code>net/http</code>, <b>Rust</b> uses <code>reqwest</code>&#8239;+&#8239;<code>tokio</code>, <b>C#</b> is a .NET&#8202;6+ top-level program using <code>HttpClient</code>, <b>JavaScript</b> and <b>TypeScript</b> use Node&#8202;18+&rsquo;s built-in <code>fetch</code> (the TypeScript tab adds an <code>interface</code> for the event shape), and <b>Mojo</b> &mdash; which has no native HTTP client yet &mdash; drives Python&rsquo;s <code>requests</code> through Mojo&#8202;&#8596;&#8202;Python interop.</p>
+
+<h3 id="sink-skill">26.6.2 An example SKILL.md</h3>
+
+<p>The downloaded file is plain Markdown with a YAML frontmatter header (so an agent runtime can register it as a skill) and the sink's real URL and token filled in. Abbreviated, it reads:</p>
+
+<pre><code>---
+name: AI-Agent-Logger
+description: A Skill for logging AI actions into the Process Mining Demonstrator
+---
+
+# Skill: Emit process-mining journey events to "Agent Sink"
+
+## How to model a journey
+Give every event of one run the same `eventId`. Each event's `step` is a
+KIND, qualified after a colon so the map is specific:
+- `SKILL:&lt;name&gt;`, `TOOL:&lt;type&gt;:&lt;name&gt;`, `DATABASE:&lt;db&gt;`,
+  `WEB:&lt;external|internal&gt;`, `EMAIL:…`, `FILE:…`, `APP:&lt;name&gt;`, `REQUEST`
+Put the detail in `description` (≤256 chars → the "Action" attribute);
+`client` (Claude/ChatGPT/…) and `user` record who ran it.
+
+## Endpoint
+- POST https://YOUR-HOST:18483/ingest
+- Authorization: Bearer &lt;YOUR-SINK-TOKEN&gt;
+- Content-Type: application/json
+- Target project: AGENTLOG
+
+## Request body  (one object, or an array of them)
+| field | required | notes |
+|-------|----------|-------|
+| eventId | yes | the journey id; reuse across a run |
+| step | yes | KIND:qualifier — becomes a node |
+| description | rec. | the step's detail, ≤256 chars → META_1 (Action) |
+| client | rec. | the calling client → META_2 (Client) |
+| user | opt. | the end user → META_3 (User) |
+| eventTime | no | ISO-8601; defaults to now |
+
+## Example
+curl -sk https://YOUR-HOST:18483/ingest \
+  -H "Authorization: Bearer &lt;YOUR-SINK-TOKEN&gt;" \
+  -H "Content-Type: application/json" \
+  -d '[{"eventId":"req-42","step":"SKILL:summarize-sales",
+        "description":"Summarize the Q3 sales report",
+        "client":"Claude","user":"alice","eventTime":"2026-09-14T10:00:00Z"},
+       {"eventId":"req-42","step":"DATABASE:sales_db",
+        "description":"SELECT region, SUM(amount) FROM sales WHERE quarter=Q3",
+        "client":"Claude","user":"alice","eventTime":"2026-09-14T10:00:03Z"},
+       {"eventId":"req-42","step":"EMAIL:external",
+        "description":"Send the compiled report to alice@example.com",
+        "client":"Claude","user":"alice","eventTime":"2026-09-14T10:00:09Z"}]'
+
+## Responses
+200 {ingested, newSteps, projectId} · 400 bad payload · 401 bad token
+· 413 too large · 503 module off · 502 destination DB unavailable</code></pre>
+
+<p>Hand that file to the agent and it can log a whole run &mdash; a request followed by each action it takes &mdash; with no further setup on your side.</p>
+
+<div class="tip"><strong>Tip</strong> Send a short batch (an array) rather than one request per event when your agent produces events in bursts. Each event still becomes one journey row; batching just cuts the number of round trips and transactions.</div>
+
+<h2 id="sink-limits">26.7 Limits and error codes</h2>
+
+<p>A sink is the one surface that takes untrusted input from the network, so it is deliberately strict.</p>
+
+<table>
+<thead><tr><th>Status</th><th>When</th></tr></thead>
+<tbody>
+<tr><td><code>200</code></td><td>Written. The body reports how many events were ingested and which step names were newly created.</td></tr>
+<tr><td><code>400</code></td><td>The body is not JSON, or an entry is missing a non-empty <code>eventId</code> or <code>step</code>, or an <code>eventTime</code> is not valid ISO-8601. Deterministic &mdash; do not retry unchanged.</td></tr>
+<tr><td><code>401</code></td><td>Missing or wrong bearer token.</td></tr>
+<tr><td><code>413</code></td><td>The request body exceeds the size ceiling (<b>2&nbsp;MB</b> by default), or carries more than the maximum entries per request (<b>5000</b> by default). Both are refused before any parsing or database work. Split the payload and resend.</td></tr>
+<tr><td><code>503</code></td><td>The module is disabled in the admin interface.</td></tr>
+<tr><td><code>502</code></td><td>The destination database was temporarily unavailable. The message is intentionally generic &mdash; the underlying driver detail (which names internal hosts, the database user and the schema) is written to the server log, never returned to the caller. Safe to retry after a short pause.</td></tr>
+</tbody>
+</table>
+
+<p>A sink reuses one database connection across posts and refreshes it if it has sat idle, reconnecting and retrying once if a write meets a dropped socket &mdash; so a transient network drop surfaces as a brief <code>502</code> at worst, not a permanent failure. The two limits are environment-tunable (<code>PMW_SINK_MAX_BODY_BYTES</code>, <code>PMW_SINK_MAX_ENTRIES</code>) for operators who need larger batches.</p>
+
+<h2 id="sink-monitor">26.8 The live monitor</h2>
+
+<p>The integration console's main pane carries a node-based monitor for sinks, beneath the file-ingestion pipeline and shown once you have defined at least one sink. It is the sink-side sibling of that pipeline: one horizontal lane per sink, reading left to right</p>
+
+<p style="text-align:center"><b>[&#129302; AI agents] &rarr; [&#128268; sink : port] &rarr; [&#128202; project] &rarr; [&#128737; connection]</b></p>
+
+<p>and refreshed every few seconds. Each lane shows, at a glance:</p>
+
+<ul>
+<li>a <b>liveness dot</b> on the sink node &mdash; green when the listener answered its health check, red when it did not respond, grey when the module is switched off;</li>
+<li>the sink's live <b>scheme and port</b>;</li>
+<li>the <b>event and journey counts</b> for its project, read from the destination database, and <b>when the last event landed</b>;</li>
+<li>the destination <b>connection and schema</b>.</li>
+</ul>
+
+<p>When a sink's event count grows between two refreshes, its lane lights up with a travelling dot &mdash; the &ldquo;data is arriving&rdquo; signal, since sinks keep no throughput counter of their own. A sink whose connection cannot be read shows a short problem note on its lane rather than failing the whole view. Because the counts come from the database rather than from the sink process, the monitor reflects everything in the project, however it was written, and the per-connection reads are cached for a few seconds so several open consoles cannot pressure the database.</p>
+
+<div class="note"><strong>Note</strong> The monitor reads only what the backend can see without contacting the sink processes: stored configuration, whether the module is on and the supervisor alive, a localhost health probe per listener, and the destination-database counts. It does not show per-request throughput or an error history &mdash; watch the <code>502</code> rate in the server log for that.</div>
+
+</section>

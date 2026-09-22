@@ -77,12 +77,12 @@ def test_developer_can_crud_actions_scoped_to_connection_and_project(backend):
     H = {"X-PMW-User": "dev"}
 
     # None yet.
-    r = client.get("/api/projects/APF/actions", params={"connectionId": cid}, headers=H)
+    r = client.get("/api/projects/7/actions", params={"connectionId": cid}, headers=H)
     assert r.status_code == 200 and r.json()["actions"] == []
 
     # Create.
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "Last 3", "script": "…", "spec": _spec(), "enabled": True},
         headers=H,
     )
@@ -91,20 +91,20 @@ def test_developer_can_crud_actions_scoped_to_connection_and_project(backend):
     assert r.json()["name"] == "Last 3"
 
     # Listed under this (connection, project) only.
-    assert len(client.get("/api/projects/APF/actions", params={"connectionId": cid}, headers=H).json()["actions"]) == 1
-    assert client.get("/api/projects/OTHER/actions", params={"connectionId": cid}, headers=H).json()["actions"] == []
+    assert len(client.get("/api/projects/7/actions", params={"connectionId": cid}, headers=H).json()["actions"]) == 1
+    assert client.get("/api/projects/8/actions", params={"connectionId": cid}, headers=H).json()["actions"] == []
 
     # Update.
     r = client.put(
-        f"/api/projects/APF/actions/{aid}",
+        f"/api/projects/7/actions/{aid}",
         json={"connectionId": cid, "name": "Renamed", "script": "…", "spec": _spec(), "enabled": False},
         headers=H,
     )
     assert r.status_code == 200 and r.json()["name"] == "Renamed" and r.json()["enabled"] is False
 
     # Delete.
-    assert client.delete(f"/api/projects/APF/actions/{aid}", params={"connectionId": cid}, headers=H).status_code == 200
-    assert client.get("/api/projects/APF/actions", params={"connectionId": cid}, headers=H).json()["actions"] == []
+    assert client.delete(f"/api/projects/7/actions/{aid}", params={"connectionId": cid}, headers=H).status_code == 200
+    assert client.get("/api/projects/7/actions", params={"connectionId": cid}, headers=H).json()["actions"] == []
 
 
 def test_create_rejects_an_unknown_selector(backend):
@@ -113,7 +113,7 @@ def test_create_rejects_an_unknown_selector(backend):
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "bad", "spec": _spec(**{"from": {"selectors": ["SIDEWAYS"]}})},
         headers={"X-PMW-User": "dev"},
     )
@@ -134,7 +134,7 @@ def test_transition_table_accepts_all_metrics(backend):
         }
     )
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "TT", "spec": spec},
         headers={"X-PMW-User": "dev"},
     )
@@ -152,7 +152,7 @@ def test_flowchart_action_saves_with_a_target(backend):
     )
     spec["target"] = {"connection": "01 - Exasol Nano", "project": "Airport Passenger Flow Analysis"}
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "Cross map", "spec": spec},
         headers={"X-PMW-User": "dev"},
     )
@@ -169,7 +169,7 @@ def test_flowchart_action_requires_a_target(backend):
     spec = _spec(show={"kind": "flowchart", "limit": 0, "metrics": [], "forLast": None})
     # No target → 400.
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "bad", "spec": spec},
         headers={"X-PMW-User": "dev"},
     )
@@ -183,7 +183,7 @@ def test_transition_table_rejects_unknown_metric(backend):
     client = TestClient(app)
     spec = _spec(show={"kind": "transitionTable", "limit": 0, "metrics": ["BOGUS"], "forLast": None})
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "bad", "spec": spec},
         headers={"X-PMW-User": "dev"},
     )
@@ -196,9 +196,9 @@ def test_power_user_may_list_but_not_author(backend):
     cid = _conn(store, assignments=["pat"])
     client = TestClient(app)
     H = {"X-PMW-User": "pat"}
-    assert client.get("/api/projects/APF/actions", params={"connectionId": cid}, headers=H).status_code == 200
+    assert client.get("/api/projects/7/actions", params={"connectionId": cid}, headers=H).status_code == 200
     r = client.post(
-        "/api/projects/APF/actions",
+        "/api/projects/7/actions",
         json={"connectionId": cid, "name": "x", "spec": _spec()},
         headers=H,
     )
@@ -211,7 +211,7 @@ def test_standard_user_cannot_even_list(backend):
     cid = _conn(store, assignments=["reg"])
     client = TestClient(app)
     assert client.get(
-        "/api/projects/APF/actions", params={"connectionId": cid}, headers={"X-PMW-User": "reg"}
+        "/api/projects/7/actions", params={"connectionId": cid}, headers={"X-PMW-User": "reg"}
     ).status_code == 403
 
 
@@ -222,7 +222,7 @@ def test_idor_blocks_a_connection_not_assigned_to_the_caller(backend):
     cid = _conn(store, assignments=["owner"])
     client = TestClient(app)
     assert client.get(
-        "/api/projects/APF/actions", params={"connectionId": cid}, headers={"X-PMW-User": "dev"}
+        "/api/projects/7/actions", params={"connectionId": cid}, headers={"X-PMW-User": "dev"}
     ).status_code == 403
 
 
@@ -233,7 +233,7 @@ def test_disabled_feature_forbids_everything(backend):
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
     assert client.get(
-        "/api/projects/APF/actions", params={"connectionId": cid}, headers={"X-PMW-User": "dev"}
+        "/api/projects/7/actions", params={"connectionId": cid}, headers={"X-PMW-User": "dev"}
     ).status_code == 403
 
 
@@ -243,7 +243,7 @@ def test_preview_sql_translates_the_spec(backend):
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
     r = client.post(
-        "/api/projects/APF/actions/preview-sql",
+        "/api/projects/7/actions/preview-sql",
         json={"connectionId": cid, "spec": _spec(), "contextNode": "PAYMENT", "resolvedSteps": ["PAYMENT"]},
         headers={"X-PMW-User": "dev"},
     )
@@ -259,7 +259,7 @@ def test_run_requires_a_live_connection(backend):
     client = TestClient(app)
     # Not connected to any database ⇒ the run gate returns 409 before touching data.
     r = client.post(
-        "/api/projects/APF/actions/does-not-exist/run",
+        "/api/projects/7/actions/does-not-exist/run",
         json={"connectionId": cid, "filter": {}, "contextNode": "A", "resolvedSteps": ["A"]},
         headers={"X-PMW-User": "dev"},
     )

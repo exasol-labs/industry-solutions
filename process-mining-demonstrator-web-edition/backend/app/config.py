@@ -100,6 +100,62 @@ ACTIONS_HTTPS_PORT = int(
     os.environ.get("PMW_ACTIONS_HTTPS_PORT", str(ADMIN_HTTPS_PORT + 20))
 )
 
+# API Server - Event Receiver — a supervisor process runs one HTTP/HTTPS ingestion server per
+# configured sink, each on its own port from a FIXED, pre-exposed pool (Docker can only
+# publish statically-declared ports, not ranges). By convention the pool starts at the
+# admin port + 30 (HTTP 8120.. / HTTPS 8483.. with the defaults). All sinks follow the
+# same shared TLS plan as the app + admin. One PID file for the whole supervisor.
+SINK_HOST = os.environ.get("PMW_SINK_HOST", ADMIN_HOST)
+SINK_PORT_BASE = int(os.environ.get("PMW_SINK_PORT_BASE", str(ADMIN_PORT + 30)))
+SINK_HTTPS_PORT_BASE = int(
+    os.environ.get("PMW_SINK_HTTPS_PORT_BASE", str(ADMIN_HTTPS_PORT + 30))
+)
+SINK_POOL_SIZE = int(os.environ.get("PMW_SINK_POOL_SIZE", "10"))
+SINK_PID_PATH = DATA_DIR / "sink.pid"
+
+# A sink reuses one DB connection across posts. An idle connection can be dropped by the
+# network (e.g. the host.docker.internal NAT) or the server, so before reusing one that
+# has sat idle longer than this many seconds the sink reconnects rather than risk a
+# timeout on a dead socket. Kept well under typical NAT/idle drops.
+SINK_IDLE_RECONNECT_SECS = int(os.environ.get("PMW_SINK_IDLE_RECONNECT_SECS", "60"))
+
+# The `sources.kind` value that marks an API Server - Event Receiver (vs a "file" source).
+SINK_SOURCE_KIND = "ai-agent-logging-sink"
+
+# Ingest request limits (a sink is network-exposed and takes untrusted input): the
+# largest POST body accepted, and the most journey entries a single POST may carry.
+# Beyond either the request is refused (413) before any parsing/DB work — so an
+# oversized or entry-flooded post can't exhaust memory or the destination database.
+SINK_MAX_BODY_BYTES = int(os.environ.get("PMW_SINK_MAX_BODY_BYTES", str(2 * 1024 * 1024)))
+SINK_MAX_ENTRIES = int(os.environ.get("PMW_SINK_MAX_ENTRIES", "5000"))
+
+# The HTTP ports a sink may bind (the pre-exposed pool), and the HTTPS peer of each.
+SINK_HTTP_PORTS: list[int] = [SINK_PORT_BASE + i for i in range(SINK_POOL_SIZE)]
+
+
+def sink_https_port_for(http_port: int) -> int:
+    """The HTTPS listener port paired with a sink's chosen HTTP port (same pool offset)."""
+    return SINK_HTTPS_PORT_BASE + (int(http_port) - SINK_PORT_BASE)
+
+
+# MCP server — a machine-facing surface that lets AI clients (Claude, ChatGPT, …) query the
+# process data over the Model Context Protocol (HTTP). By convention on the admin port + 40
+# (HTTP 8130 / HTTPS 8493 with the defaults). Follows the same shared TLS plan as the other
+# surfaces. It authenticates callers with an OAuth access token issued by an external
+# Authentik server (validated offline against its JWKS), then maps the token to a Process
+# Mining user and answers read-only queries against that user's assigned connections. Off
+# until enabled in the admin panel's MCP Server tab.
+MCP_HOST = os.environ.get("PMW_MCP_HOST", ADMIN_HOST)
+MCP_PORT = int(os.environ.get("PMW_MCP_PORT", str(ADMIN_PORT + 40)))
+MCP_HTTPS_PORT = int(os.environ.get("PMW_MCP_HTTPS_PORT", str(ADMIN_HTTPS_PORT + 40)))
+MCP_PID_PATH = DATA_DIR / "mcp.pid"
+
+# Cap on rows returned by the MCP query tools, so one call can't stream an unbounded result
+# to the client (variants/paths especially). Clients can page under this with their own limit.
+MCP_MAX_ROWS = int(os.environ.get("PMW_MCP_MAX_ROWS", "1000"))
+# How long a fetched JWKS (Authentik's signing keys) is cached before re-fetch, in seconds.
+MCP_JWKS_CACHE_SECS = int(os.environ.get("PMW_MCP_JWKS_CACHE_SECS", "3600"))
+
 # File sources for the integration console read from this sandbox directory by default —
 # nothing outside it can be opened (path traversal / symlink escapes are rejected). Set
 # PMW_INTEGRATION_ALLOW_ANY_PATH=1 to instead allow any absolute path the server can read

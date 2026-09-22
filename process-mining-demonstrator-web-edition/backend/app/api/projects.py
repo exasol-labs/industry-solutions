@@ -48,7 +48,11 @@ def repo(sample_set: SampleSet = SampleSet.original) -> ProcessRepository:
 
 
 def require_connection() -> None:
-    if not current_db().is_connected:
+    db = current_db()
+    # A socket the network/DB dropped after idle leaves is_connected False, but the
+    # manager still knows how to reopen it and will self-heal on the next query — so
+    # don't 409 (which forces a manual reconnect); let the query through to reconnect.
+    if not (db.is_connected or db.can_reconnect):
         raise HTTPException(status_code=409, detail="Not connected to a database.")
 
 
@@ -102,7 +106,7 @@ async def list_projects() -> list[Project]:
 
 @router.get("/projects/{project_id}/bootstrap", response_model=ProjectBootstrap)
 async def bootstrap(
-    project_id: str, sampleSet: SampleSet = SampleSet.original
+    project_id: int, sampleSet: SampleSet = SampleSet.original
 ) -> ProjectBootstrap:
     """Everything AppViewModel.selectProject() loaded before the first graph."""
     require_connection()
@@ -178,7 +182,7 @@ async def bootstrap(
 
 
 @router.post("/projects/{project_id}/graph", response_model=GraphResult)
-async def load_graph(project_id: str, request: GraphRequest) -> GraphResult:
+async def load_graph(project_id: int, request: GraphRequest) -> GraphResult:
     """One round trip for everything a chart panel shows: graph, journey count,
     duration KPIs, process goodness and (optionally) the variant list."""
     require_connection()
@@ -225,7 +229,7 @@ async def load_graph(project_id: str, request: GraphRequest) -> GraphResult:
 
 @router.post("/projects/{project_id}/journey-paths", response_model=list[JourneyPath])
 async def journey_paths(
-    project_id: str, request: GraphRequest
+    project_id: int, request: GraphRequest
 ) -> list[JourneyPath]:
     require_connection()
     r = repo(request.filter.sampleSet)
@@ -248,7 +252,7 @@ def similarity(request: SimilarityRequest) -> dict[str, float | None]:
 
 
 @router.post("/projects/{project_id}/statistics", response_model=StatisticsResponse)
-async def statistics(project_id: str, request: StatisticsRequest) -> StatisticsResponse:
+async def statistics(project_id: int, request: StatisticsRequest) -> StatisticsResponse:
     require_connection()
     f = request.filter
     r = repo(f.sampleSet)
@@ -292,7 +296,7 @@ async def statistics(project_id: str, request: StatisticsRequest) -> StatisticsR
 
 @router.get("/projects/{project_id}/event-ids", response_model=list[str])
 async def event_ids(
-    project_id: str,
+    project_id: int,
     prefix: str = Query(""),
     limit: int = 10,
     sampleSet: SampleSet = SampleSet.original,
@@ -303,9 +307,25 @@ async def event_ids(
     return await repo(sampleSet).load_event_id_suggestions(project_id, prefix, limit)
 
 
+class NodeMetasRequest(BaseModel):
+    step: str
+    sampleSet: SampleSet = SampleSet.original
+
+
+@router.post("/projects/{project_id}/node-metas")
+async def node_metas(project_id: int, request: NodeMetasRequest) -> dict:
+    """The META_1/2/3 values that occur on one node's (step's) events — the values the node
+    "Meta Infos" panel offers, scoped to that node. Each entry is
+    ``{value, time, count}``: the value, the date/time it was last seen, and how many of
+    the node's events carry it."""
+    require_connection()
+    vals = await repo(request.sampleSet).load_node_meta_values(project_id, request.step)
+    return {"meta1": vals["META_1"], "meta2": vals["META_2"], "meta3": vals["META_3"]}
+
+
 @router.get("/projects/{project_id}/journey")
 async def journey(
-    project_id: str,
+    project_id: int,
     eventId: str,
     sampleSet: SampleSet = SampleSet.original,
 ) -> dict[str, object]:
@@ -337,7 +357,7 @@ async def journey(
 
 @router.put("/projects/{project_id}/steps/{step}")
 async def update_step(
-    project_id: str, step: str, payload: StepUpdate
+    project_id: int, step: str, payload: StepUpdate
 ) -> dict[str, object]:
     require_connection()
     r = repo()
@@ -362,7 +382,7 @@ async def update_step(
 
 @router.post("/projects/{project_id}/nearest-day")
 async def nearest_day(
-    project_id: str, request: NearestDayRequest
+    project_id: int, request: NearestDayRequest
 ) -> dict[str, datetime | None]:
     require_connection()
     found = await repo(request.sampleSet).find_nearest_day_with_data(

@@ -76,6 +76,7 @@ function DemoSection({
   schema,
   onSchema,
   generate,
+  defaultJourneys = 500,
 }: {
   icon: string
   title: string
@@ -83,8 +84,9 @@ function DemoSection({
   schema: string
   onSchema: (value: string) => void
   generate: (journeys: number) => Promise<{ ok: boolean; text: string }>
+  defaultJourneys?: number
 }) {
-  const [journeys, setJourneys] = useState(500)
+  const [journeys, setJourneys] = useState(defaultJourneys)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -131,11 +133,12 @@ function DemoSection({
         </div>
         <div style={{ width: 130 }}>
           <Field label="Journeys">
+            {/* No upper bound — large datasets (e.g. Airport Passenger Flow) stream. */}
             <input
               className="text-input"
               type="number"
               min={1}
-              max={20000}
+              step={1}
               value={journeys}
               onChange={(e) => setJourneys(Math.max(1, Number(e.target.value) || 0))}
             />
@@ -295,7 +298,7 @@ export function ConnectionEditor({
   }
 
   const runDemo = async (
-    dataset: 'retail' | 'finance' | 'transportation',
+    dataset: 'retail' | 'finance' | 'transportation' | 'airport',
     journeys: number,
   ): Promise<{ ok: boolean; text: string }> => {
     const res = await store.generateDemo({
@@ -729,6 +732,15 @@ export function ConnectionEditor({
                 onSchema={(v) => set('schema', v)}
                 generate={(j) => runDemo('transportation', j)}
               />
+              <DemoSection
+                icon="🛫"
+                title="Airport Passenger Flow"
+                description="A departing passenger’s terminal walk: departure hall → baggage drop / check-in → security → the airside amenities (duty free, lounge, dining) in any order → boarding. Passport Control switches the airside and boarding steps from their domestic (Dom) to their international (Int) variant; 2% leave the hall without travelling and 5% of boardings are denied. Loads into the “APF” project; defaults to 1,000,000 journeys (streamed, so the count is effectively unlimited). Each EVENT_ID is the MD5 hash of “APF-0000001”, “APF-0000002”, … (the prefix APF- plus a 7-digit sequence number)."
+                schema={draft.schema}
+                onSchema={(v) => set('schema', v)}
+                generate={(j) => runDemo('airport', j)}
+                defaultJourneys={1_000_000}
+              />
             </div>
           </div>
         )}
@@ -789,8 +801,8 @@ export function ConnectionEditor({
                       >
                         {p.title}
                       </span>
-                      {p.title !== p.projectId && (
-                        <span className="t-caption2 fg-tertiary">{p.projectId}</span>
+                      {p.title !== p.titleShort && (
+                        <span className="t-caption2 fg-tertiary">{p.titleShort}</span>
                       )}
                     </div>
                     <span className="t-caption2 fg-secondary" style={{ whiteSpace: 'nowrap' }}>

@@ -64,7 +64,7 @@ type SectionId = 'connections' | 'projects' | 'actions'
 export function ActionsBuilder({ onShowHelp }: { onShowHelp: () => void }) {
   const store = useStore()
   const connId = store.connection.activeProfileId ?? ''
-  const projectId = store.selectedProject?.projectId ?? ''
+  const projectId = store.selectedProject?.projectId ?? 0
   const steps = useMemo(() => Object.keys(store.processGraph.steps), [store.processGraph])
   const transitions = store.processGraph.transitions
 
@@ -152,7 +152,7 @@ export function ActionsBuilder({ onShowHelp }: { onShowHelp: () => void }) {
     }
   }
 
-  const pickProject = async (pid: string) => {
+  const pickProject = async (pid: number) => {
     const project = store.projects.find((p) => p.projectId === pid)
     if (!project) return
     setBusy(true)

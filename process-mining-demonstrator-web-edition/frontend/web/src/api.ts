@@ -12,6 +12,7 @@ import type {
   HappyPath,
   JourneyEvent,
   JourneyPath,
+  MetaEntry,
   ProcessGraph,
   ProcessNote,
   Project,
@@ -22,6 +23,8 @@ import type {
   IntegrationStatus,
   RecordDetection,
   SampleSet,
+  PortalConnection,
+  SinkMonitor,
   Source,
   SourceCheckpoint,
   SourceInput,
@@ -157,6 +160,10 @@ export const api = {
   listConnections: () => get<AssignedConnection[]>('/api/connections'),
   connectConnection: (id: string) =>
     post<ConnectionStatus>(`/api/connections/${enc(id)}/connect`),
+  // End-user launch page: the user's processes grouped by connection.
+  portal: () => get<{ connections: PortalConnection[] }>('/api/portal'),
+  // The training-guide index (same list the suite launcher shows), for the launch page.
+  guides: () => get<{ file: string; title: string; type: string }[]>('/guides/index.json'),
 
   // Power-user connection management (create / edit / assign, from the app).
   listManageableConnections: () =>
@@ -189,7 +196,7 @@ export const api = {
   // Projects stored in a manageable connection's schema (journey/event counts + delete).
   listConnectionProjects: (id: string) =>
     get<ConnectionProjectsResult>(`/api/connections/${enc(id)}/projects`),
-  deleteConnectionProject: (id: string, projectId: string) =>
+  deleteConnectionProject: (id: string, projectId: number) =>
     post<ConnectionProjectDeleteResult>(`/api/connections/${enc(id)}/projects/delete`, {
       projectId,
     }),
@@ -213,10 +220,35 @@ export const api = {
   parseTimestamp: (value: string) =>
     post<{ format: string; normalized: string }>('/api/integration/parse/timestamp', { value }),
   listSources: () => get<Source[]>('/api/integration/sources'),
-  createSource: (body: SourceInput) => post<Source>('/api/integration/sources', body),
+  // Creating an API Server - Event Receiver returns a one-time `token` (only its hash is stored).
+  createSource: (body: SourceInput) =>
+    post<Source & { token?: string }>('/api/integration/sources', body),
   updateSource: (id: string, body: SourceInput) =>
     put<Source>(`/api/integration/sources/${enc(id)}`, body),
   deleteSource: (id: string) => del<{ ok: boolean }>(`/api/integration/sources/${enc(id)}`),
+  // The sink port pool + ports already taken (by port → sink name), for the wizard.
+  listSinkPorts: () =>
+    get<{ pool: number[]; https: Record<string, number>; used: Record<string, string> }>(
+      '/api/integration/sink-ports',
+    ),
+  // Mint a fresh bearer token for a sink; the new plaintext is returned once.
+  regenerateSinkToken: (id: string) =>
+    post<{ token: string }>(`/api/integration/sources/${enc(id)}/regenerate-token`, {}),
+  // Everything needed to build a sink's exact ingest request (scheme/port live under
+  // the current TLS mode, + the console container ports for host-offset detection).
+  sinkIngestInfo: (id: string) =>
+    get<{
+      method: string; path: string
+      httpPort: number; httpsPort: number
+      tlsMode: string; activeScheme: string; activeContainerPort: number
+      consoleHttpPort: number; consoleHttpsPort: number; titleShort: string
+      endpointUrl: string
+    }>(`/api/integration/sources/${enc(id)}/ingest-info`),
+  // Save (or clear, with "") a sink's public endpoint-URL override.
+  setSinkEndpoint: (id: string, url: string) =>
+    post<{ endpointUrl: string }>(`/api/integration/sources/${enc(id)}/sink-endpoint`, { url }),
+  // The live sink monitor: per-sink liveness + destination-DB counts (one poll).
+  sinkMonitor: () => get<SinkMonitor>('/api/integration/sinks/monitor'),
   previewSource: (path: string, limit: number) =>
     post<{ lines: string[]; truncated: boolean }>('/api/integration/sources/preview', { path, limit }),
   // Source-type wizard file picker: list the sandbox files, and detect a file's record
@@ -232,9 +264,9 @@ export const api = {
   // the manager-only /api/connections/{id}/projects).
   destinationProjects: (connectionId: string) =>
     get<ConnectionProjectsResult>(`/api/integration/connections/${enc(connectionId)}/projects`),
-  runSource: (id: string, projectId: string, connectionId: string, delta = true) =>
+  runSource: (id: string, titleShort: string, connectionId: string, delta = true) =>
     post<{ records: number; detail: string }>(`/api/integration/sources/${enc(id)}/run`, {
-      projectId,
+      titleShort,
       connectionId,
       delta,
     }),
@@ -245,12 +277,19 @@ export const api = {
 
   // ── project data ─────────────────────────────────────────────────────────
   listProjects: () => get<Project[]>('/api/projects'),
-  bootstrap: (projectId: string, sampleSet: SampleSet) =>
+  bootstrap: (projectId: number, sampleSet: SampleSet) =>
     get<ProjectBootstrap>(
-      `/api/projects/${enc(projectId)}/bootstrap?sampleSet=${sampleSet}`,
+      `/api/projects/${projectId}/bootstrap?sampleSet=${sampleSet}`,
+    ),
+  // The META values that occur on ONE node's (step's) events, for its Meta Infos panel.
+  // Each entry carries the value, the date/time it was last seen, and its occurrence count.
+  nodeMetaValues: (projectId: number, step: string, sampleSet: SampleSet) =>
+    post<{ meta1: MetaEntry[]; meta2: MetaEntry[]; meta3: MetaEntry[] }>(
+      `/api/projects/${projectId}/node-metas`,
+      { step, sampleSet },
     ),
   graph: (
-    projectId: string,
+    projectId: number,
     filter: FilterSpec,
     options: {
       totalJourneyCount?: number | null
@@ -259,25 +298,25 @@ export const api = {
       variantLimit?: number
     } = {},
   ) =>
-    post<GraphResult>(`/api/projects/${enc(projectId)}/graph`, {
+    post<GraphResult>(`/api/projects/${projectId}/graph`, {
       filter,
       totalJourneyCount: options.totalJourneyCount ?? null,
       includeGoodness: options.includeGoodness ?? true,
       includeVariants: options.includeVariants ?? false,
       variantLimit: options.variantLimit ?? 500,
     }),
-  journeyPaths: (projectId: string, filter: FilterSpec, variantLimit = 500) =>
-    post<JourneyPath[]>(`/api/projects/${enc(projectId)}/journey-paths`, {
+  journeyPaths: (projectId: number, filter: FilterSpec, variantLimit = 500) =>
+    post<JourneyPath[]>(`/api/projects/${projectId}/journey-paths`, {
       filter,
       variantLimit,
     }),
   statistics: (
-    projectId: string,
+    projectId: number,
     filter: FilterSpec,
     routeLimit: number,
     totalJourneyCount: number | null,
   ) =>
-    post<StatisticsResponse>(`/api/projects/${enc(projectId)}/statistics`, {
+    post<StatisticsResponse>(`/api/projects/${projectId}/statistics`, {
       filter,
       routeLimit,
       totalJourneyCount,
@@ -288,11 +327,11 @@ export const api = {
     graphA: ProcessGraph
     graphB: ProcessGraph
   }) => post<{ score: number | null }>('/api/similarity', payload),
-  eventIds: (projectId: string, prefix: string, sampleSet: SampleSet) =>
+  eventIds: (projectId: number, prefix: string, sampleSet: SampleSet) =>
     get<string[]>(
-      `/api/projects/${enc(projectId)}/event-ids?prefix=${enc(prefix)}&sampleSet=${sampleSet}`,
+      `/api/projects/${projectId}/event-ids?prefix=${enc(prefix)}&sampleSet=${sampleSet}`,
     ),
-  journey: (projectId: string, eventId: string, sampleSet: SampleSet) =>
+  journey: (projectId: number, eventId: string, sampleSet: SampleSet) =>
     get<{
       queriedEventId: string
       processGraph: ProcessGraph
@@ -305,10 +344,10 @@ export const api = {
       meta2: string | null
       meta3: string | null
     }>(
-      `/api/projects/${enc(projectId)}/journey?eventId=${enc(eventId)}&sampleSet=${sampleSet}`,
+      `/api/projects/${projectId}/journey?eventId=${enc(eventId)}&sampleSet=${sampleSet}`,
     ),
   updateStep: (
-    projectId: string,
+    projectId: number,
     step: string,
     payload: {
       bgColor: string
@@ -323,22 +362,22 @@ export const api = {
       scoreBoundsMin: number
       scoreBoundsMax: number
       allStepInfos: Record<string, StepInfo>
-    }>(`/api/projects/${enc(projectId)}/steps/${enc(step)}`, payload),
-  nearestDay: (projectId: string, day: string, sampleSet: SampleSet) =>
-    post<{ date: string | null }>(`/api/projects/${enc(projectId)}/nearest-day`, {
+    }>(`/api/projects/${projectId}/steps/${enc(step)}`, payload),
+  nearestDay: (projectId: number, day: string, sampleSet: SampleSet) =>
+    post<{ date: string | null }>(`/api/projects/${projectId}/nearest-day`, {
       day,
       sampleSet,
     }),
 
   // ── notes ────────────────────────────────────────────────────────────────
-  listNotes: (projectId: string) =>
-    get<ProcessNote[]>(`/api/projects/${enc(projectId)}/notes`),
-  saveNote: (projectId: string, note: ProcessNote) =>
-    put<ProcessNote>(`/api/projects/${enc(projectId)}/notes`, note),
+  listNotes: (projectId: number) =>
+    get<ProcessNote[]>(`/api/projects/${projectId}/notes`),
+  saveNote: (projectId: number, note: ProcessNote) =>
+    put<ProcessNote>(`/api/projects/${projectId}/notes`, note),
   // Append a comment to a note's thread and/or toggle resolved (any viewer);
   // importance/isShared are applied server-side only for the note's author.
   updateNote: (
-    projectId: string,
+    projectId: number,
     noteId: string,
     body: {
       title?: string
@@ -348,28 +387,28 @@ export const api = {
       isShared?: boolean
     },
   ) =>
-    post<ProcessNote>(`/api/projects/${enc(projectId)}/notes/${enc(noteId)}`, body),
-  deleteNote: (projectId: string, noteId: string) =>
-    del<void>(`/api/projects/${enc(projectId)}/notes/${enc(noteId)}`),
+    post<ProcessNote>(`/api/projects/${projectId}/notes/${enc(noteId)}`, body),
+  deleteNote: (projectId: number, noteId: string) =>
+    del<void>(`/api/projects/${projectId}/notes/${enc(noteId)}`),
 
   // ── sampling ─────────────────────────────────────────────────────────────
-  sampleCounts: (projectId: string) =>
+  sampleCounts: (projectId: number) =>
     get<{ counts: Record<string, number>; methods: Record<string, SamplingMethod> }>(
-      `/api/projects/${enc(projectId)}/samples`,
+      `/api/projects/${projectId}/samples`,
     ),
   createSample: (
-    projectId: string,
+    projectId: number,
     sampleSet: SampleSet,
     count: number,
     method: SamplingMethod,
   ) =>
     post<{ counts: Record<string, number>; created: number }>(
-      `/api/projects/${enc(projectId)}/samples`,
+      `/api/projects/${projectId}/samples`,
       { sampleSet, count, method },
     ),
-  deleteSample: (projectId: string, sampleSet: SampleSet) =>
+  deleteSample: (projectId: number, sampleSet: SampleSet) =>
     del<{ counts: Record<string, number> }>(
-      `/api/projects/${enc(projectId)}/samples/${sampleSet}`,
+      `/api/projects/${projectId}/samples/${sampleSet}`,
     ),
 
   // ── simulation & conformance ─────────────────────────────────────────────
@@ -378,15 +417,15 @@ export const api = {
     stepInfos: Record<string, StepInfo>,
     config: SimulationConfig,
   ) => post<SimulationResult>('/api/simulate', { graph, stepInfos, config }),
-  conformance: (projectId: string, filter: FilterSpec, happyPaths: HappyPath[]) =>
-    post<Record<string, number | null>>(`/api/projects/${enc(projectId)}/conformance`, {
+  conformance: (projectId: number, filter: FilterSpec, happyPaths: HappyPath[]) =>
+    post<Record<string, number | null>>(`/api/projects/${projectId}/conformance`, {
       filter,
       happyPaths,
     }),
 
   // ── AI documentation ─────────────────────────────────────────────────────
   documentation: (
-    projectId: string,
+    projectId: number,
     payload: {
       projectTitle: string
       filter: FilterSpec
@@ -403,45 +442,45 @@ export const api = {
       preparedFor?: string
     },
   ) =>
-    post<DocumentationResponse>(`/api/projects/${enc(projectId)}/documentation`, payload),
+    post<DocumentationResponse>(`/api/projects/${projectId}/documentation`, payload),
 
   // The report analysis prompt for a (connection, project). Power/developer/admin only —
   // the same mapping the admin Reporting tab manages.
-  reportPrompt: (projectId: string, connectionId: string) =>
+  reportPrompt: (projectId: number, connectionId: string) =>
     get<{ prompt: string }>(
-      `/api/projects/${enc(projectId)}/report-prompt?connectionId=${enc(connectionId)}`,
+      `/api/projects/${projectId}/report-prompt?connectionId=${enc(connectionId)}`,
     ),
-  setReportPrompt: (projectId: string, connectionId: string, prompt: string) =>
-    put<{ prompt: string }>(`/api/projects/${enc(projectId)}/report-prompt`, {
+  setReportPrompt: (projectId: number, connectionId: string, prompt: string) =>
+    put<{ prompt: string }>(`/api/projects/${projectId}/report-prompt`, {
       connectionId,
       prompt,
     }),
 
   // ── actions (saved node-menu actions, per connection + project) ───────────
-  listActions: (projectId: string, connectionId: string) =>
+  listActions: (projectId: number, connectionId: string) =>
     get<{ actions: SavedAction[] }>(
-      `/api/projects/${enc(projectId)}/actions?connectionId=${enc(connectionId)}`,
+      `/api/projects/${projectId}/actions?connectionId=${enc(connectionId)}`,
     ),
   createAction: (
-    projectId: string,
+    projectId: number,
     body: { connectionId: string; name: string; script: string; spec: ActionSpec; enabled: boolean },
-  ) => post<SavedAction>(`/api/projects/${enc(projectId)}/actions`, body),
+  ) => post<SavedAction>(`/api/projects/${projectId}/actions`, body),
   updateAction: (
-    projectId: string,
+    projectId: number,
     actionId: string,
     body: { connectionId: string; name: string; script: string; spec: ActionSpec; enabled: boolean },
-  ) => put<SavedAction>(`/api/projects/${enc(projectId)}/actions/${enc(actionId)}`, body),
-  deleteAction: (projectId: string, actionId: string, connectionId: string) =>
+  ) => put<SavedAction>(`/api/projects/${projectId}/actions/${enc(actionId)}`, body),
+  deleteAction: (projectId: number, actionId: string, connectionId: string) =>
     del<{ ok: boolean }>(
-      `/api/projects/${enc(projectId)}/actions/${enc(actionId)}?connectionId=${enc(connectionId)}`,
+      `/api/projects/${projectId}/actions/${enc(actionId)}?connectionId=${enc(connectionId)}`,
     ),
   runAction: (
-    projectId: string,
+    projectId: number,
     actionId: string,
     body: { connectionId: string; filter: FilterSpec; contextNode: string; resolvedSteps: string[] },
-  ) => post<ActionRunResult>(`/api/projects/${enc(projectId)}/actions/${enc(actionId)}/run`, body),
+  ) => post<ActionRunResult>(`/api/projects/${projectId}/actions/${enc(actionId)}/run`, body),
   previewRunAction: (
-    projectId: string,
+    projectId: number,
     body: {
       connectionId: string
       spec: ActionSpec
@@ -449,9 +488,9 @@ export const api = {
       contextNode: string
       resolvedSteps: string[]
     },
-  ) => post<ActionRunResult>(`/api/projects/${enc(projectId)}/actions/preview-run`, body),
+  ) => post<ActionRunResult>(`/api/projects/${projectId}/actions/preview-run`, body),
   previewActionSql: (
-    projectId: string,
+    projectId: number,
     body: {
       connectionId: string
       spec: ActionSpec
@@ -459,27 +498,27 @@ export const api = {
       contextNode: string
       resolvedSteps: string[]
     },
-  ) => post<{ sql: string }>(`/api/projects/${enc(projectId)}/actions/preview-sql`, body),
+  ) => post<{ sql: string }>(`/api/projects/${projectId}/actions/preview-sql`, body),
 
   // ── aggregates (collapse connected steps into a Σ super-step) ─────────────
-  createAggregate: (projectId: string, body: CreateAggregateBody) =>
-    post<CreateAggregateResult>(`/api/projects/${enc(projectId)}/aggregate`, body),
-  createAggregateSet: (projectId: string, body: CreateAggregateSetBody) =>
-    post<AggregateSetResult>(`/api/projects/${enc(projectId)}/aggregate-set`, body),
-  addAggregates: (highLevelProjectId: string, body: AddAggregatesBody) =>
+  createAggregate: (projectId: number, body: CreateAggregateBody) =>
+    post<CreateAggregateResult>(`/api/projects/${projectId}/aggregate`, body),
+  createAggregateSet: (projectId: number, body: CreateAggregateSetBody) =>
+    post<AggregateSetResult>(`/api/projects/${projectId}/aggregate-set`, body),
+  addAggregates: (highLevelProjectId: number, body: AddAggregatesBody) =>
     post<AggregateSetResult>(`/api/projects/${enc(highLevelProjectId)}/aggregate-set/add`, body),
-  listAggregates: (projectId: string, connectionId: string) =>
+  listAggregates: (projectId: number, connectionId: string) =>
     get<{ aggregates: AggregateLink[] }>(
-      `/api/projects/${enc(projectId)}/aggregates?connectionId=${enc(connectionId)}`,
+      `/api/projects/${projectId}/aggregates?connectionId=${enc(connectionId)}`,
     ),
   /** The ORIGINAL source graph + each aggregate's members, for expanding a Σ node in place
    *  with real (un-aggregated) numbers. projectId = the high-level map. */
-  aggregateDrill: (projectId: string, connectionId: string, filter: FilterSpec) =>
+  aggregateDrill: (projectId: number, connectionId: string, filter: FilterSpec) =>
     post<{
       graph: ProcessGraph
       journeyCount: number | null
       aggregates: { sigmaStep: string; members: string[] }[]
-    }>(`/api/projects/${enc(projectId)}/aggregate-drill`, { connectionId, filter }),
+    }>(`/api/projects/${projectId}/aggregate-drill`, { connectionId, filter }),
 
   // ── settings ─────────────────────────────────────────────────────────────
   settings: () => get<Record<string, unknown>>('/api/settings'),

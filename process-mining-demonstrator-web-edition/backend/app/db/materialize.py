@@ -55,6 +55,7 @@ class StepRow:
     shape: str
     end_of_process: bool
     belongs_to: str
+    step_id: int | None = None  # stable activity id (matches JOURNEYS.STEP_ID)
 
 
 # ── pure transforms (unit-testable, no DB) ────────────────────────────────────
@@ -69,18 +70,23 @@ class AggGroup:
 
 
 def collapse_high_level_multi(
-    events: list[SourceEvent], groups: list[AggGroup]
+    events: list[SourceEvent], groups: list[AggGroup],
+    sigma_ids: dict[str, int] | None = None,
 ) -> list[SourceEvent]:
     """Collapse SEVERAL aggregates at once into one high-level event stream.
 
     Each journey's maximal consecutive run of steps belonging to the *same* aggregate is
     folded into one Σ event for that aggregate; the run breaks when the owning aggregate
     changes (to a different aggregate, or to a non-member step). Member sets across groups
-    must be disjoint. Assumes ``events`` ordered by (event_id, event_time, step_id)."""
+    must be disjoint. Assumes ``events`` ordered by (event_id, event_time, step_id).
+
+    ``sigma_ids`` maps each Σ name to its own activity id, stamped on the collapsed Σ
+    event (NOT a member's id) so the high-level transition query groups the Σ correctly."""
     owner: dict[str, str] = {}
     for g in groups:
         for m in g.members:
             owner[m] = g.sigma
+    sids = sigma_ids or {}
     out: list[SourceEvent] = []
     last_eid: str | None = None
     cur_sigma: str | None = None  # the Σ of the run in progress, or None outside any run
@@ -94,7 +100,7 @@ def collapse_high_level_multi(
                 continue  # same aggregate run — folded into the Σ event already emitted
             cur_sigma = sig
             out.append(
-                SourceEvent(e.event_id, sig, e.step_id, e.event_time, e.meta1, e.meta2, e.meta3)
+                SourceEvent(e.event_id, sig, sids.get(sig), e.event_time, e.meta1, e.meta2, e.meta3)
             )
         else:
             cur_sigma = None
@@ -114,7 +120,9 @@ def filter_detail(events: list[SourceEvent], members: set[str]) -> list[SourceEv
     return [e for e in events if e.step in members]
 
 
-def sigma_step_row(sigma: str, members: set[str], steps: list[StepRow]) -> StepRow:
+def sigma_step_row(
+    sigma: str, members: set[str], steps: list[StepRow], step_id: int | None = None
+) -> StepRow:
     """A synthetic STEPS row for the Σ super-step; score = sum of member scores.
 
     The Σ step inherits the members' BELONGS_TO group when they all share one (ignoring
@@ -133,6 +141,7 @@ def sigma_step_row(sigma: str, members: set[str], steps: list[StepRow]) -> StepR
         shape="rectangle",
         end_of_process=False,
         belongs_to=belongs_to,
+        step_id=step_id,
     )
 
 
@@ -144,10 +153,11 @@ def _steps_insert_sqls(project_id: str, steps: list[StepRow]) -> list[str]:
     for s in steps:
         eop = "TRUE" if s.end_of_process else "FALSE"
         score = "NULL" if s.score is None else str(int(s.score))
+        sid = "NULL" if s.step_id is None else str(int(s.step_id))
         out.append(
-            "INSERT INTO STEPS (PROJECT_ID, STEP, DESCRIPTION, BG_COLOR, FG_COLOR, SCORE, "
+            "INSERT INTO STEPS (PROJECT_ID, STEP, STEP_ID, DESCRIPTION, BG_COLOR, FG_COLOR, SCORE, "
             "SHAPE, END_OF_PROCESS, BELONGS_TO) VALUES "
-            f"('{_sq(project_id)}', '{_sq(s.step)}', '{_sq(s.description or '')}', "
+            f"({int(project_id)}, '{_sq(s.step)}', {sid}, '{_sq(s.description or '')}', "
             f"'{_sq(s.bg_color or '')}', '{_sq(s.fg_color or '')}', {score}, "
             f"'{_sq(s.shape or 'rectangle')}', {eop}, '{_sq(s.belongs_to or '')}')"
         )
@@ -156,8 +166,9 @@ def _steps_insert_sqls(project_id: str, steps: list[StepRow]) -> list[str]:
 
 def _journey_rows(project_id: str, events: list[SourceEvent]):
     """Yield JOURNEYS rows (in _JOURNEY_COLUMNS order) for the bulk IMPORT."""
+    pid = int(project_id)  # PROJECT_ID is a SMALLINT
     for e in events:
-        yield (project_id, e.event_id, e.step, e.step_id, e.event_time, e.meta1, e.meta2, e.meta3)
+        yield (pid, e.event_id, e.step, e.step_id, e.event_time, e.meta1, e.meta2, e.meta3)
 
 
 def _lit(value: str | None) -> str:
@@ -168,7 +179,7 @@ def _journeys_insert_values(project_id: str, rows: list[SourceEvent]) -> str:
     """A batched INSERT … VALUES for JOURNEYS — the slow fallback when HTTP IMPORT is
     unavailable (e.g. the Exasol cluster cannot open a data channel to this host)."""
     vals = ",\n  ".join(
-        f"('{_sq(project_id)}', '{_sq(r.event_id)}', '{_sq(r.step)}', "
+        f"({int(project_id)}, '{_sq(r.event_id)}', '{_sq(r.step)}', "
         f"{'NULL' if r.step_id is None else int(r.step_id)}, "
         f"TIMESTAMP '{r.event_time}', "
         f"{_lit(r.meta1)}, {_lit(r.meta2)}, {_lit(r.meta3)})"
@@ -190,7 +201,7 @@ def _read_source(run_sql, schema: str, project_id: str) -> tuple[list[SourceEven
     ev_rows = run_sql(
         "SELECT EVENT_ID, STEP, STEP_ID, "
         "TO_CHAR(EVENT_TIME, 'YYYY-MM-DD HH24:MI:SS'), META_1, META_2, META_3 "
-        f"FROM JOURNEYS WHERE PROJECT_ID = '{_sq(project_id)}' "
+        f"FROM JOURNEYS WHERE PROJECT_ID = {int(project_id)} "
         "AND (SAMPLE_SET = 'ORIGINAL' OR SAMPLE_SET IS NULL) "
         "ORDER BY EVENT_ID, EVENT_TIME, STEP_ID"
     )
@@ -200,18 +211,18 @@ def _read_source(run_sql, schema: str, project_id: str) -> tuple[list[SourceEven
         for r in ev_rows
     ]
     st_rows = run_sql(
-        "SELECT STEP, DESCRIPTION, BG_COLOR, FG_COLOR, SCORE, SHAPE, END_OF_PROCESS, BELONGS_TO "
-        f"FROM STEPS WHERE PROJECT_ID = '{_sq(project_id)}'"
+        "SELECT STEP, DESCRIPTION, BG_COLOR, FG_COLOR, SCORE, SHAPE, END_OF_PROCESS, BELONGS_TO, STEP_ID "
+        f"FROM STEPS WHERE PROJECT_ID = {int(project_id)}"
     )
     steps = [
         StepRow(str(r[0]), r[1] or "", r[2] or "", r[3] or "",
                 None if r[4] is None else int(r[4]), r[5] or "rectangle",
-                bool(r[6]), r[7] or "")
+                bool(r[6]), r[7] or "", None if r[8] is None else int(r[8]))
         for r in st_rows
     ]
     meta_rows = run_sql(
         "SELECT META_1_TITLE, META_2_TITLE, META_3_TITLE "
-        f"FROM METAS WHERE PROJECT_ID = '{_sq(project_id)}'"
+        f"FROM METAS WHERE PROJECT_ID = {int(project_id)}"
     )
     titles = (
         (str(meta_rows[0][0] or ""), str(meta_rows[0][1] or ""), str(meta_rows[0][2] or ""))
@@ -232,6 +243,7 @@ def _write_project(
     provision: bool,
     project_id: str,
     title: str,
+    title_short: str,
     description: str,
     meta_titles: tuple[str, str, str],
     steps: list[StepRow],
@@ -249,15 +261,15 @@ def _write_project(
 
     # Replace any pre-existing rows for this fresh project id (idempotent re-run).
     for table in ("JOURNEYS", "STEPS", "METAS", "PROJECTS"):
-        run_sql(f"DELETE FROM {table} WHERE PROJECT_ID = '{_sq(project_id)}'")
+        run_sql(f"DELETE FROM {table} WHERE PROJECT_ID = {int(project_id)}")
 
     run_sql(
-        "INSERT INTO PROJECTS (PROJECT_ID, TITLE, DESCRIPTION) VALUES "
-        f"('{_sq(project_id)}', '{_sq(title)}', '{_sq(description)}')"
+        "INSERT INTO PROJECTS (PROJECT_ID, TITLE, DESCRIPTION, TITLE_SHORT) VALUES "
+        f"({int(project_id)}, '{_sq(title)}', '{_sq(description)}', '{_sq(title_short)}')"
     )
     run_sql(
         "INSERT INTO METAS (PROJECT_ID, META_1_TITLE, META_2_TITLE, META_3_TITLE) VALUES "
-        f"('{_sq(project_id)}', '{_sq(meta_titles[0])}', '{_sq(meta_titles[1])}', "
+        f"({int(project_id)}, '{_sq(meta_titles[0])}', '{_sq(meta_titles[1])}', "
         f"'{_sq(meta_titles[2])}')"
     )
     for sql in _steps_insert_sqls(project_id, steps):
@@ -277,7 +289,7 @@ def _write_project(
                 import_params={"columns": _JOURNEY_COLUMNS},
             )
         except Exception:  # noqa: BLE001 — any transport failure falls back to VALUES
-            run_sql(f"DELETE FROM JOURNEYS WHERE PROJECT_ID = '{_sq(project_id)}'")  # clear a partial IMPORT
+            run_sql(f"DELETE FROM JOURNEYS WHERE PROJECT_ID = {int(project_id)}")  # clear a partial IMPORT
             for offset in range(0, len(events), _BATCH):
                 run_sql(_journeys_insert_values(project_id, events[offset : offset + _BATCH]))
 
@@ -287,8 +299,9 @@ class Target:
     connection: object  # a Connection with secrets
     schema: str
     provision: bool  # create the schema + tables first
-    project_id: str
+    project_id: str  # an allocated SMALLINT (int, or numeric string)
     title: str
+    title_short: str = ""  # human code; 'Σ…' high-level, '#…' detail (drives sidebar hiding)
 
 
 def _open_conn(conn):
@@ -324,7 +337,8 @@ def _write_target(tgt: "Target", steps, events, meta_titles) -> None:
         _write_project(
             raw, run,
             schema=tgt.schema, provision=tgt.provision, project_id=tgt.project_id,
-            title=tgt.title, description="", meta_titles=meta_titles, steps=steps, events=events,
+            title=tgt.title, title_short=tgt.title_short, description="",
+            meta_titles=meta_titles, steps=steps, events=events,
         )
         raw.commit()
     finally:
@@ -355,9 +369,16 @@ async def materialize_aggregate_set(
             src_raw.close()
 
         all_members: set[str] = set().union(*[set(g.members) for g in groups]) if groups else set()
-        hi_events = collapse_high_level_multi(events, groups)
+        # Give each Σ super-step its own activity id above the source ids, and stamp it
+        # on both the collapsed Σ events and the synthetic Σ STEPS row so the high-level
+        # transition query groups the Σ node on a real, unique id.
+        max_id = max((s.step_id or 0 for s in steps), default=0)
+        sigma_ids = {g.sigma: max_id + i + 1 for i, g in enumerate(groups)}
+        hi_events = collapse_high_level_multi(events, groups, sigma_ids)
         hi_steps = [s for s in steps if s.step not in all_members]
-        hi_steps.extend(sigma_step_row(g.sigma, set(g.members), steps) for g in groups)
+        hi_steps.extend(
+            sigma_step_row(g.sigma, set(g.members), steps, sigma_ids[g.sigma]) for g in groups
+        )
         _write_target(high_level, hi_steps, hi_events, meta_titles)
 
         for tgt, members in details:

@@ -31,6 +31,7 @@ from ..config import (
     DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ADMIN_USERNAME,
     SECURITY_DB_PATH,
+    SINK_SOURCE_KIND,
 )
 from ..services import certs as cert_service
 from .crypto import (
@@ -385,6 +386,7 @@ class Connection:
     owner: str = ""  # power user who created it from the app; '' = admin-defined
     created_at: str = ""
     use_materialized_transitions: bool = False
+    use_indb_sampling: bool = False
 
     @property
     def has_llm(self) -> bool:
@@ -412,6 +414,7 @@ class Connection:
             "owner": self.owner,
             "createdAt": self.created_at,
             "useMaterializedTransitions": self.use_materialized_transitions,
+            "useInDbSampling": self.use_indb_sampling,
         }
 
     def user_public(self) -> dict:
@@ -497,6 +500,14 @@ class SecurityStore:
             self._conn.execute(
                 "ALTER TABLE connections ADD COLUMN "
                 "use_materialized_transitions INTEGER NOT NULL DEFAULT 0"
+            )
+        # Opt-in to building sample sets entirely inside the database (one set-based
+        # INSERT … SELECT) instead of extracting ids to the app and re-inserting —
+        # needed for very large logs where the round-trip times out.
+        if "use_indb_sampling" not in conn_cols:
+            self._conn.execute(
+                "ALTER TABLE connections ADD COLUMN "
+                "use_indb_sampling INTEGER NOT NULL DEFAULT 0"
             )
         # Directory sign-in to the admin interface is an explicit opt-in (default off).
         ldap_cols = {
@@ -587,6 +598,52 @@ class SecurityStore:
     def set_actions_enabled(self, enabled: bool) -> None:
         with self._lock:
             self._set_config("actions_enabled", "1" if enabled else "0")
+            self._conn.commit()
+
+    @property
+    def sink_enabled(self) -> bool:
+        """Whether the API Server - Event Receiver module is available: the per-sink ingestion
+        servers accept posts. Opt-in, so OFF by default until an admin turns it on."""
+        with self._lock:
+            return self._get_config("sink_enabled") == "1"
+
+    def set_sink_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self._set_config("sink_enabled", "1" if enabled else "0")
+            self._conn.commit()
+
+    # ── MCP server ──────────────────────────────────────────────────────────
+    # Config lives in the key-value security_config table (no secrets: offline JWKS
+    # validation needs only public settings). `mcp_username_claim` names the JWT claim
+    # (e.g. preferred_username / email) matched — case-insensitively — to an enabled
+    # Process Mining user, whose connection assignments then gate what may be queried.
+    _MCP_KEYS = ("issuer", "jwksUri", "audience", "requiredGroup", "usernameClaim")
+
+    @property
+    def mcp_enabled(self) -> bool:
+        """Whether the MCP query server accepts requests. Opt-in, OFF by default."""
+        with self._lock:
+            return self._get_config("mcp_enabled") == "1"
+
+    def set_mcp_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self._set_config("mcp_enabled", "1" if enabled else "0")
+            self._conn.commit()
+
+    def mcp_settings(self) -> dict:
+        """The MCP OAuth/Authentik settings (no secrets). Missing values default to ''
+        except usernameClaim, which defaults to 'preferred_username'."""
+        with self._lock:
+            out = {k: (self._get_config(f"mcp_{k}") or "") for k in self._MCP_KEYS}
+        if not out["usernameClaim"]:
+            out["usernameClaim"] = "preferred_username"
+        return out
+
+    def set_mcp_settings(self, data: dict) -> None:
+        with self._lock:
+            for k in self._MCP_KEYS:
+                if k in data:
+                    self._set_config(f"mcp_{k}", str(data.get(k) or "").strip())
             self._conn.commit()
 
     @property
@@ -1339,7 +1396,7 @@ class SecurityStore:
         """Upsert the Style & Sections for one (connection, project). A `logo` of None
         keeps that project's stored logo; "" clears it. Validates accent + logo."""
         connection_id = (connection_id or "").strip()
-        project_id = (project_id or "").strip()
+        project_id = project_id
         if not connection_id or not project_id:
             raise ValueError("A connection and a project are required")
         accent = (accent or "").strip()
@@ -1398,7 +1455,7 @@ class SecurityStore:
     def set_report_prompt(self, connection_id: str, project_id: str, prompt: str) -> list[dict]:
         """Upsert one (connection, project) → prompt mapping. An empty prompt removes it."""
         connection_id = (connection_id or "").strip()
-        project_id = (project_id or "").strip()
+        project_id = project_id
         prompt = (prompt or "").strip()
         if not connection_id or not project_id:
             raise ValueError("A connection and a project are required")
@@ -1434,7 +1491,7 @@ class SecurityStore:
 
     def actions_for(self, connection_id: str, project_id: str) -> list[dict]:
         """The saved actions for this (connection, project), in insertion order."""
-        cid, pid = (connection_id or "").strip(), (project_id or "").strip()
+        cid, pid = (connection_id or "").strip(), project_id
         return [
             dict(r)
             for r in self._actions_raw()
@@ -1450,7 +1507,7 @@ class SecurityStore:
     def upsert_action(self, connection_id: str, project_id: str, action: dict) -> dict:
         """Create or replace one saved action, keyed by (connection, project, id). The
         caller supplies the id (a fresh uuid on create, the existing id on update)."""
-        cid, pid = (connection_id or "").strip(), (project_id or "").strip()
+        cid, pid = (connection_id or "").strip(), project_id
         aid = (action.get("id") or "").strip()
         if not cid or not pid:
             raise ValueError("A connection and a project are required")
@@ -1486,7 +1543,7 @@ class SecurityStore:
         return record
 
     def delete_action(self, connection_id: str, project_id: str, action_id: str) -> None:
-        cid, pid = (connection_id or "").strip(), (project_id or "").strip()
+        cid, pid = (connection_id or "").strip(), project_id
         rows = [
             r
             for r in self._actions_raw()
@@ -1511,28 +1568,51 @@ class SecurityStore:
             data = []
         return data if isinstance(data, list) else []
 
-    def aggregates_for(self, connection_id: str, project_id: str) -> list[dict]:
+    def aggregates_for(self, connection_id: str, project_id: int) -> list[dict]:
         """Aggregate links whose HIGH-LEVEL project is this (connection, project) — used
-        by the app to offer 'drill down' on a Σ step."""
-        cid, pid = (connection_id or "").strip(), (project_id or "").strip()
-        return [
+        by the app to offer 'drill down' on a Σ step.
+
+        Falls back to deriving the links from the aggregate SET whose high-level map is
+        this (connection, project) when no explicit link rows exist — so drill-down
+        works even for aggregates whose link write didn't land (e.g. an older build) and
+        without a manual re-create."""
+        cid, pid = (connection_id or "").strip(), project_id
+        direct = [
             dict(r)
             for r in self._aggregates_raw()
             if r.get("connectionId") == cid and r.get("projectId") == pid
+        ]
+        if direct:
+            return direct
+        aset = self.aggregate_set_by_high_level(cid, pid)
+        if not aset:
+            return []
+        return [
+            {
+                "connectionId": cid,
+                "projectId": pid,
+                "sigmaStep": a.get("sigmaStep", ""),
+                "detailConnectionId": a.get("detailConnectionId", ""),
+                "detailProjectId": a.get("detailProjectId"),
+            }
+            for a in (aset.get("aggregates") or [])
+            if a.get("sigmaStep")
         ]
 
     def add_aggregate_link(self, link: dict) -> dict:
         """Record a Σ step's drill-down target. Keyed by (connectionId, projectId, sigmaStep)
         where connectionId/projectId identify the HIGH-LEVEL project holding the Σ node."""
         cid = (link.get("connectionId") or "").strip()
-        pid = (link.get("projectId") or "").strip()
+        pid = link.get("projectId")  # PROJECT_ID is a SMALLINT (int) — stored as-is
         sigma = (link.get("sigmaStep") or "").strip()
         record = {
             "connectionId": cid,
             "projectId": pid,
             "sigmaStep": sigma,
             "detailConnectionId": (link.get("detailConnectionId") or "").strip(),
-            "detailProjectId": (link.get("detailProjectId") or "").strip(),
+            # detailProjectId is an int PROJECT_ID — keep it as-is (never .strip(): that
+            # would raise AttributeError on the int and leave the Σ node with no drill link).
+            "detailProjectId": link.get("detailProjectId"),
             "createdAt": _now(),
         }
         rows = [
@@ -1566,55 +1646,48 @@ class SecurityStore:
             data = []
         return data if isinstance(data, list) else []
 
-    def aggregate_set_by_source(self, connection_id: str, project_id: str) -> dict | None:
-        cid, pid = (connection_id or "").strip(), (project_id or "").strip()
+    def aggregate_set_by_source(self, connection_id: str, project_id: int) -> dict | None:
+        cid, pid = (connection_id or "").strip(), project_id
         for r in self._aggregate_sets_raw():
             if r.get("sourceConnectionId") == cid and r.get("sourceProjectId") == pid:
                 return dict(r)
         return None
 
-    def aggregate_set_by_high_level(self, connection_id: str, project_id: str) -> dict | None:
-        cid, pid = (connection_id or "").strip(), (project_id or "").strip()
+    def aggregate_set_by_high_level(self, connection_id: str, project_id: int) -> dict | None:
+        cid, pid = (connection_id or "").strip(), project_id
         for r in self._aggregate_sets_raw():
             if r.get("highLevelConnectionId") == cid and r.get("highLevelProjectId") == pid:
                 return dict(r)
         return None
 
-    def _agg_loc(self, conn_id: str, schema: str | None = None) -> tuple[str, str] | None:
-        """A (host, schema) location, resolving the connection's host (and its own schema
-        when ``schema`` is None). Lower-cased for a tolerant match."""
-        conn = self.get_connection((conn_id or "").strip(), with_secrets=False)
-        if conn is None:
-            return None
-        sch = schema if schema is not None else (conn.schema or "")
-        return ((conn.host or "").strip().lower(), (sch or "").strip().lower())
+    def aggregate_connection_roles(self) -> dict[str, set[str]]:
+        """The specific CONNECTION IDS chosen for each role across all stored aggregate
+        sets: ``source`` (the original), ``high`` (the high-level Σ map) and ``detail``
+        (the drill-down targets). A connection used SOLELY as a detail target is hideable;
+        one that is also a source or high-level connection is not (mirroring 'a high-level
+        map is always visible; details may be hidden').
 
-    def aggregate_locations(self) -> dict[str, set[tuple[str, str]]]:
-        """(host, schema) locations grouped by role across all stored aggregate sets:
-        ``source`` (the original), ``high`` (the high-level Σ map) and ``detail`` (the
-        drill-down projects). Used to mark aggregate-bearing connections and to decide which
-        may be hidden — a detail-only connection is hideable; a source/high-level one is not
-        (mirroring 'a high-level map is always visible; details may be hidden')."""
-        src: set[tuple[str, str]] = set()
-        high: set[tuple[str, str]] = set()
-        detail: set[tuple[str, str]] = set()
+        Matching is by the exact connection picked for the aggregate — NOT by (host,
+        schema) — so a *different*, normal connection that merely points at the same
+        database/schema as a detail project is never wrongly hidden. (Detail *projects*
+        are still hidden per-project via their '#'-prefixed TITLE_SHORT.)"""
+        src: set[str] = set()
+        high: set[str] = set()
+        detail: set[str] = set()
         for s in self._aggregate_sets_raw():
-            loc = self._agg_loc(s.get("sourceConnectionId", ""))
-            if loc:
-                src.add(loc)
-            loc = self._agg_loc(s.get("highLevelConnectionId", ""), s.get("highLevelSchema", ""))
-            if loc:
-                high.add(loc)
+            if cid := (s.get("sourceConnectionId") or "").strip():
+                src.add(cid)
+            if cid := (s.get("highLevelConnectionId") or "").strip():
+                high.add(cid)
             for a in s.get("aggregates") or []:
-                loc = self._agg_loc(a.get("detailConnectionId", ""), a.get("detailSchema", ""))
-                if loc:
-                    detail.add(loc)
+                if cid := (a.get("detailConnectionId") or "").strip():
+                    detail.add(cid)
         return {"source": src, "high": high, "detail": detail}
 
     def save_aggregate_set(self, record: dict) -> dict:
         """Upsert an aggregate set, keyed by its source (connection, project)."""
         cid = (record.get("sourceConnectionId") or "").strip()
-        pid = (record.get("sourceProjectId") or "").strip()
+        pid = record.get("sourceProjectId")  # PROJECT_ID is a SMALLINT (int)
         now = _now()
         existing = self.aggregate_set_by_source(cid, pid)
         record = dict(record)
@@ -2277,6 +2350,9 @@ class SecurityStore:
                 if "use_materialized_transitions" in row.keys()
                 else 0
             ),
+            use_indb_sampling=bool(
+                row["use_indb_sampling"] if "use_indb_sampling" in row.keys() else 0
+            ),
         )
 
     def list_connections(self) -> list[Connection]:
@@ -2374,8 +2450,8 @@ class SecurityStore:
                     (id, name, comment, host, port, username, db_schema, use_tls,
                      cert_mode, fingerprint, min_rsa_bits, password_enc,
                      llm_url, llm_model, llm_key_enc, owner,
-                     use_materialized_transitions, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     use_materialized_transitions, use_indb_sampling, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name, comment=excluded.comment, host=excluded.host,
                     port=excluded.port, username=excluded.username, db_schema=excluded.db_schema,
@@ -2383,7 +2459,8 @@ class SecurityStore:
                     fingerprint=excluded.fingerprint, min_rsa_bits=excluded.min_rsa_bits,
                     password_enc=excluded.password_enc, llm_url=excluded.llm_url,
                     llm_model=excluded.llm_model, llm_key_enc=excluded.llm_key_enc,
-                    use_materialized_transitions=excluded.use_materialized_transitions
+                    use_materialized_transitions=excluded.use_materialized_transitions,
+                    use_indb_sampling=excluded.use_indb_sampling
                 """,
                 (
                     conn_id,
@@ -2403,6 +2480,7 @@ class SecurityStore:
                     llm_key_enc,
                     (data.get("owner") or "").strip(),  # only applied on INSERT (immutable after)
                     int(bool(data.get("useMaterializedTransitions"))),
+                    int(bool(data.get("useInDbSampling"))),
                     _now(),
                 ),
             )
@@ -2586,6 +2664,11 @@ class SecurityStore:
         with self._lock:
             rows = self._conn.execute("SELECT * FROM sources").fetchall()
             return [self._row_to_source(r) for r in rows]
+
+    def list_all_sinks(self) -> list[Source]:
+        """Every API Server - Event Receiver across all owners — the sink supervisor binds one
+        ingestion server per row (see app.sink_launcher)."""
+        return [s for s in self.list_all_sources() if s.kind == SINK_SOURCE_KIND]
 
     # ── watchdog read checkpoints (per source file) ───────────────────────────
 

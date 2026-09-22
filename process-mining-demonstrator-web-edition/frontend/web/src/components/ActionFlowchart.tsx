@@ -14,6 +14,7 @@ const METRIC_ICONS: Record<TransitionMetric, string> = {
   Percentage: '%',
   'Journey %': '%',
   'Avg Time': '⏱',
+  'Median Time': '½',
   'Min Time': '⌄',
   'Max Time': '⌃',
   'Std Dev': '〰',

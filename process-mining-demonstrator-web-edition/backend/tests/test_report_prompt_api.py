@@ -64,21 +64,21 @@ def test_power_user_can_edit_prompt_per_connection_and_project(backend):
     H = {"X-PMW-User": "pat"}
 
     # None configured yet → empty.
-    r = client.get("/api/projects/APF/report-prompt", params={"connectionId": cid}, headers=H)
+    r = client.get("/api/projects/7/report-prompt", params={"connectionId": cid}, headers=H)
     assert r.status_code == 200 and r.json() == {"prompt": ""}
 
     # Save, then read back — keyed by BOTH connection and project.
     r = client.put(
-        "/api/projects/APF/report-prompt",
+        "/api/projects/7/report-prompt",
         json={"connectionId": cid, "prompt": "Find the outliers"},
         headers=H,
     )
     assert r.status_code == 200 and r.json()["prompt"] == "Find the outliers"
-    assert store.report_prompt_for(cid, "APF") == "Find the outliers"
+    assert store.report_prompt_for(cid, 7) == "Find the outliers"
 
     # Empty prompt clears the mapping.
-    client.put("/api/projects/APF/report-prompt", json={"connectionId": cid, "prompt": ""}, headers=H)
-    assert store.report_prompt_for(cid, "APF") is None
+    client.put("/api/projects/7/report-prompt", json={"connectionId": cid, "prompt": ""}, headers=H)
+    assert store.report_prompt_for(cid, 7) is None
 
 
 def test_developer_can_edit_prompt(backend):
@@ -87,11 +87,11 @@ def test_developer_can_edit_prompt(backend):
     cid = _conn(store, assignments=["dev"])
     client = TestClient(app)
     r = client.put(
-        "/api/projects/APF/report-prompt",
+        "/api/projects/7/report-prompt",
         json={"connectionId": cid, "prompt": "Developer prompt"},
         headers={"X-PMW-User": "dev"},
     )
-    assert r.status_code == 200 and store.report_prompt_for(cid, "APF") == "Developer prompt"
+    assert r.status_code == 200 and store.report_prompt_for(cid, 7) == "Developer prompt"
 
 
 def test_cannot_reach_a_connection_not_assigned_to_the_caller(backend):
@@ -105,14 +105,14 @@ def test_cannot_reach_a_connection_not_assigned_to_the_caller(backend):
 
     # eve (power, but not assigned) cannot read or write conn A's prompt.
     assert client.get(
-        "/api/projects/APF/report-prompt", params={"connectionId": cid}, headers={"X-PMW-User": "eve"}
+        "/api/projects/7/report-prompt", params={"connectionId": cid}, headers={"X-PMW-User": "eve"}
     ).status_code == 403
     assert client.put(
-        "/api/projects/APF/report-prompt",
+        "/api/projects/7/report-prompt",
         json={"connectionId": cid, "prompt": "pwned"},
         headers={"X-PMW-User": "eve"},
     ).status_code == 403
-    assert store.report_prompt_for(cid, "APF") is None
+    assert store.report_prompt_for(cid, 7) is None
 
 
 def test_regular_user_is_forbidden(backend):
@@ -121,16 +121,16 @@ def test_regular_user_is_forbidden(backend):
     cid = _conn(store, assignments=["reg"])
     client = TestClient(app)
     H = {"X-PMW-User": "reg"}
-    assert client.get("/api/projects/APF/report-prompt", params={"connectionId": cid}, headers=H).status_code == 403
+    assert client.get("/api/projects/7/report-prompt", params={"connectionId": cid}, headers=H).status_code == 403
     assert client.put(
-        "/api/projects/APF/report-prompt",
+        "/api/projects/7/report-prompt",
         json={"connectionId": cid, "prompt": "nope"},
         headers=H,
     ).status_code == 403
-    assert store.report_prompt_for(cid, "APF") is None
+    assert store.report_prompt_for(cid, 7) is None
 
 
 def test_no_user_is_forbidden(backend):
     app, _ = backend
     client = TestClient(app)  # no X-PMW-User header → sign-in disabled → refused
-    assert client.get("/api/projects/APF/report-prompt", params={"connectionId": "c1"}).status_code == 403
+    assert client.get("/api/projects/7/report-prompt", params={"connectionId": "c1"}).status_code == 403

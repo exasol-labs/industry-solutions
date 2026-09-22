@@ -107,7 +107,7 @@ def test_run_uses_the_picked_connection_without_an_active_session(env, monkeypat
     resp = TestClient(app).post(
         f"/api/integration/sources/{source.id}/run",
         headers={"X-PMW-User": "dev"},
-        json={"projectId": "P1", "connectionId": staging.id},
+        json={"titleShort": "P1", "connectionId": staging.id},
     )
 
     assert resp.status_code == 200, resp.text
@@ -184,7 +184,7 @@ def test_the_run_closes_the_connection_it_opened(env, monkeypatch):
     resp = TestClient(app).post(
         f"/api/integration/sources/{source.id}/run",
         headers={"X-PMW-User": "dev"},
-        json={"projectId": "P1", "connectionId": staging.id},
+        json={"titleShort": "P1", "connectionId": staging.id},
     )
 
     assert resp.status_code == 400
@@ -204,7 +204,7 @@ def test_a_connection_not_assigned_to_the_caller_is_refused(env, monkeypatch):
     resp = TestClient(app).post(
         f"/api/integration/sources/{source.id}/run",
         headers={"X-PMW-User": "dev"},
-        json={"projectId": "P1", "connectionId": staging.id},
+        json={"titleShort": "P1", "connectionId": staging.id},
     )
 
     assert resp.status_code == 404
@@ -215,7 +215,7 @@ def _run(client, source, staging, **body):
     return client.post(
         f"/api/integration/sources/{source.id}/run",
         headers={"X-PMW-User": "dev"},
-        json={"projectId": "P1", "connectionId": staging.id, **body},
+        json={"titleShort": "P1", "connectionId": staging.id, **body},
     )
 
 
@@ -386,12 +386,12 @@ def test_a_run_remembers_its_destination_on_the_source(env, monkeypatch):
 
     assert _run(client, source, staging).status_code == 200
     cfg = next(s for s in store.list_sources("dev") if s.id == source.id).public()["config"]
-    assert cfg["lastRun"] == {"connectionId": staging.id, "projectId": "P1"}
+    assert cfg["lastRun"] == {"connectionId": staging.id, "titleShort": "P1"}
 
     # It follows the latest run, not the first.
-    assert _run(client, source, staging, projectId="P2", delta=False).status_code == 200
+    assert _run(client, source, staging, titleShort="P2", delta=False).status_code == 200
     cfg = next(s for s in store.list_sources("dev") if s.id == source.id).public()["config"]
-    assert cfg["lastRun"]["projectId"] == "P2"
+    assert cfg["lastRun"]["titleShort"] == "P2"
 
 
 def test_editing_a_source_keeps_its_remembered_destination(env, monkeypatch):
@@ -414,7 +414,7 @@ def test_editing_a_source_keeps_its_remembered_destination(env, monkeypatch):
         },
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["config"]["lastRun"] == {"connectionId": staging.id, "projectId": "P1"}
+    assert resp.json()["config"]["lastRun"] == {"connectionId": staging.id, "titleShort": "P1"}
 
 
 def test_remembering_the_destination_never_fails_the_import(env, monkeypatch):
@@ -481,7 +481,7 @@ def test_a_connection_without_a_schema_is_rejected_by_name(env, monkeypatch):
     resp = TestClient(app).post(
         f"/api/integration/sources/{source.id}/run",
         headers={"X-PMW-User": "dev"},
-        json={"projectId": "P1", "connectionId": staging.id},
+        json={"titleShort": "P1", "connectionId": staging.id},
     )
 
     assert resp.status_code == 400

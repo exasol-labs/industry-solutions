@@ -111,9 +111,9 @@ const database: HelpTopic = {
 
 CREATE TABLE JOURNEYS (
   PROJECT_ID  VARCHAR(100) NOT NULL,
-  EVENT_ID    VARCHAR(200) NOT NULL,   -- one journey = rows sharing an EVENT_ID
+  EVENT_ID    HASHTYPE(16 BYTE) NOT NULL, -- MD5 id; one journey = rows sharing an EVENT_ID
   STEP        VARCHAR(200) NOT NULL,   -- activity name → a node in the map
-  STEP_ID     DECIMAL(18,0),           -- tie-breaker when EVENT_TIME is equal
+  STEP_ID     DECIMAL(18,0),           -- activity id of STEP (joins STEPS.STEP_ID)
   EVENT_TIME  TIMESTAMP    NOT NULL,   -- orders steps; drives date filters
   META_1      VARCHAR(500),
   META_2      VARCHAR(500),
@@ -123,6 +123,7 @@ CREATE TABLE JOURNEYS (
 CREATE TABLE STEPS (
   PROJECT_ID     VARCHAR(100) NOT NULL,
   STEP           VARCHAR(200) NOT NULL,
+  STEP_ID        DECIMAL(18,0),         -- stable activity id; JOURNEYS.STEP_ID matches it
   DESCRIPTION    VARCHAR(500),
   BG_COLOR       VARCHAR(50),          -- colour name or 6-digit hex (e.g. FF8000)
   FG_COLOR       VARCHAR(50),
@@ -1401,7 +1402,15 @@ const integrationConsole: HelpTopic = {
         p('The Integration Console is a separate surface for loading event data into a database connection. It runs on its own port (the admin port + 10 — 8100 for HTTP, 8463 for HTTPS by default) and reuses the same sign-in as the main app. It is reachable by developers and administrators only (power users may not enter it).'),
         p('At its heart is an abstraction layer: pluggable extractors read some source (today, a file) and push the parsed records into the schema of the connection you are connected to — creating the process-mining tables as needed. You define two things and then run an import.'),
         def('Source type', 'A reusable recipe for parsing one file format: an example record plus the selectors that pull out the timestamp, case id, step and up to three meta fields — regular expressions for Text, or JSON/XML paths for semi-structured files.'),
-        def('Source', 'A concrete thing to import — currently a File (a path + encoding) linked to a source type.'),
+        def('Source', 'A concrete thing to import — a File (a path + encoding) linked to a source type, or an API Server - Event Receiver (see below).'),
+      ],
+    },
+    {
+      heading: 'API Server - Event Receiver',
+      body: [
+        p('Besides files, a source can be a live HTTP/HTTPS ingestion server that AI agents (or any client) POST journey entries to as JSON. Add one under Sources → + → API Server - Event Receiver: pick the destination connection, a project code (TITLE_SHORT — entries land in that project, created if new) and a free port from the pool. On save you are shown a bearer token once (only its hash is stored) — copy it then.'),
+        p('Each sink runs on its own port from a fixed pool (the admin port + 30 onwards — 8120–8129 by default; under Docker the published host port is that + 10000). POST a JSON object or an array to /ingest with header Authorization: Bearer <token>. Each entry needs eventId (the case / correlation id) and step; eventTime (ISO-8601, defaults to now) and meta1–3 are optional. Any unknown step is created automatically.'),
+        warn('The module is off by default — an administrator must enable “API Server - Event Receiver” in the admin interface (Event Receiver tab). While it is off, the ports stay open but return 503.'),
       ],
     },
     {

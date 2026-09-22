@@ -26,6 +26,7 @@ export function ChartView({
   const store = useStore()
   const [sliderMode] = useSetting<SliderMode>('slider.mode')
   const [sankey, setSankey] = useSetting<boolean>('graph.sankeyView')
+  const [flowHorizontal, setFlowHorizontal] = useSetting<boolean>('graph.flowHorizontal')
   const [expanded, setExpanded] = useSetting<boolean>(
     side === 'a' ? 'achart.controlsExpanded' : 'bchart.controlsExpanded',
   )
@@ -49,7 +50,7 @@ export function ChartView({
 
   // A drill-down detail project (id "aggd_…") is a black-box sub-process: no Sankey, and a
   // Return button back to the high-level map it was reached from.
-  const isDetailProject = !!store.selectedProject?.projectId.startsWith('aggd_')
+  const isDetailProject = !!store.selectedProject?.titleShort?.startsWith('#')
   // In-place drill: the detail graph is shown in this canvas (high-level project stays
   // selected). Treated like a detail view (no Sankey) with a Drill-up affordance.
   const inPlace = store.inPlaceDrill
@@ -70,7 +71,7 @@ export function ChartView({
 
   const runNodeAction = async (action: SavedAction, node: string) => {
     const connId = store.connection.activeProfileId ?? ''
-    const projectId = store.selectedProject?.projectId ?? ''
+    const projectId = store.selectedProject?.projectId ?? 0
     const resolvedSteps = resolveScope(action.spec.from.selectors, node, store.processGraph.transitions)
     setActionModal({ title: `${action.name} · ${node}`, result: null, busy: true, error: null })
     try {
@@ -218,16 +219,32 @@ export function ChartView({
               </div>
             )
           ) : (
-            /* In-canvas view switch (flowchart ↔ Sankey), like the Individual Journey's. */
+            /* In-canvas view switch (flowchart ↕ / flowchart ↔ / Sankey). The two flowchart
+               options are the same directed-follows map laid out top-down or left-to-right. */
             <div className="swim-toggle seg-toggle" role="tablist" aria-label="Chart view">
               <button
-                className={`seg${sankey ? '' : ' sel'}`}
+                className={`seg${!sankey && !flowHorizontal ? ' sel' : ''}`}
                 role="tab"
-                aria-selected={!sankey}
-                onClick={() => setSankey(false)}
-                title="Directed-follows flowchart (loops shown)"
+                aria-selected={!sankey && !flowHorizontal}
+                onClick={() => {
+                  setSankey(false)
+                  setFlowHorizontal(false)
+                }}
+                title="Directed-follows flowchart, top-down (loops shown)"
               >
                 🕸 Flowchart
+              </button>
+              <button
+                className={`seg${!sankey && flowHorizontal ? ' sel' : ''}`}
+                role="tab"
+                aria-selected={!sankey && flowHorizontal}
+                onClick={() => {
+                  setSankey(false)
+                  setFlowHorizontal(true)
+                }}
+                title="Directed-follows flowchart, left-to-right (loops shown)"
+              >
+                ➡ Horizontal
               </button>
               <button
                 className={`seg${sankey ? ' sel' : ''}`}
@@ -267,11 +284,15 @@ export function ChartView({
             />
           ) : (
             <FlowChart
+              // Remount on orientation change so the layout re-seeds from the
+              // orientation-specific saved positions and re-fits the new flow direction.
+              key={`flow:${store.selectedProject.projectId}:${flowHorizontal ? 'h' : 'v'}`}
               graph={store.processGraph}
               projectId={store.selectedProject.projectId}
               chartMode={side === 'a' ? 'A-Chart' : 'B-Chart'}
               metric={store.transitionMetric}
               journeyTotal={store.journeyCount ?? 0}
+              horizontal={flowHorizontal}
               allowTransitionTable
               isLoading={store.isLoading}
               syncState={syncState}
@@ -283,6 +304,7 @@ export function ChartView({
                 'simulation'
               }
               onNodeAction={(node, action) => store.handleNodeAction(node, action)}
+              onMetaInfo={(node) => store.openMetaInfo(node)}
               notes={store.projectNotes}
               onNodeNote={notes.openNodeNotes}
               onEdgeNote={notes.openEdgeNotes}

@@ -95,6 +95,20 @@ else
   echo "→ actions surface (HTTP ${PMW_ACTIONS_PORT:-8110} / HTTPS ${PMW_ACTIONS_HTTPS_PORT:-8473}, per TLS mode)"
   "$VENV/python" actions/launch.py &
   pids+=($!)
+
+  # The API Server - Event Receiver supervisor — runs one HTTP/HTTPS ingestion server per
+  # configured sink, each on its own port from the pool (admin port + 30 onwards).
+  # Follows the same TLS plan; enable the module in the admin panel's Event Receiver tab.
+  echo "→ API Server - Event Receiver supervisor (HTTP ${PMW_SINK_PORT_BASE:-8120}.. / HTTPS ${PMW_SINK_HTTPS_PORT_BASE:-8483}.., per TLS mode)"
+  "$VENV/python" sink/launch.py &
+  pids+=($!)
+
+  # The MCP server — a seventh surface on the admin port + 40, letting AI clients query
+  # the process data over the Model Context Protocol (OAuth via Authentik). Follows the
+  # same TLS plan; enable it in the admin panel's MCP Server tab (it 503s until then).
+  echo "→ MCP server (HTTP ${PMW_MCP_PORT:-8130} / HTTPS ${PMW_MCP_HTTPS_PORT:-8493}, per TLS mode)"
+  "$VENV/python" mcp/launch.py &
+  pids+=($!)
 fi
 
 wait

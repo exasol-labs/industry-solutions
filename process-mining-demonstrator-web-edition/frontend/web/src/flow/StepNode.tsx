@@ -22,6 +22,8 @@ export interface StepNodeData extends Record<string, unknown> {
   /** Set when this node stands in for a collapsed BELONGS_TO group. */
   groupProxy: { group: string; memberCount: number; color: string } | null
   hasNote: boolean
+  /** Left-to-right layout: put the flow handles on the sides, not top/bottom. */
+  horizontal?: boolean
 }
 
 /** Node outline — ports `FlowChartView.nodePath(shape:rect:)` to CSS. */
@@ -45,7 +47,7 @@ function shapeStyle(shape: string, w: number, h: number): React.CSSProperties {
 }
 
 function StepNodeComponent({ id, data, dragging }: NodeProps) {
-  const { name, step, nodeW, nodeH, scale, showDescription, groupProxy, hasNote } =
+  const { name, step, nodeW, nodeH, scale, showDescription, groupProxy, hasNote, horizontal } =
     data as StepNodeData
 
   // Hover-dwell focus: the spotlit node and its neighbours stay bright; everything else dims.
@@ -95,8 +97,16 @@ function StepNodeComponent({ id, data, dragging }: NodeProps) {
       }}
       title={description && description !== name ? description : name}
     >
-      <Handle type="target" position={Position.Top} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} isConnectable={false} />
+      <Handle
+        type="target"
+        position={horizontal ? Position.Left : Position.Top}
+        isConnectable={false}
+      />
+      <Handle
+        type="source"
+        position={horizontal ? Position.Right : Position.Bottom}
+        isConnectable={false}
+      />
 
       {groupProxy ? (
         <div style={{ display: 'grid', justifyItems: 'center', gap: 2 }}>

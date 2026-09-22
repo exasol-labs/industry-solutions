@@ -22,9 +22,14 @@ class ColumnType(str, Enum):
 
     STRING = "string"
     INT = "int"
+    SMALLINT = "smallint"  # small integer id (e.g. PROJECT_ID)
     DECIMAL = "decimal"
     TIMESTAMP = "timestamp"
     BOOL = "bool"
+    # A hash value (e.g. an MD5-pseudonymised id). Stored as a compact
+    # fixed-length binary type; values are supplied as hex strings and convert
+    # implicitly. Used for JOURNEYS.EVENT_ID.
+    HASH = "hash"
 
 
 @dataclass(frozen=True)

@@ -69,12 +69,42 @@ export interface AppAlert {
 
 let alertSeq = 0
 
+/** List-based META value include/exclude (from the node "Meta Infos" panel). Index 0 =
+ *  Meta_1, exactly mirroring includedSteps/excludedSteps but per META column. */
+export interface MetaListFilters {
+  included: [string[], string[], string[]]
+  excluded: [string[], string[], string[]]
+}
+export const emptyMetaFilters = (): MetaListFilters => ({
+  included: [[], [], []],
+  excluded: [[], [], []],
+})
+/** Defensive read: an older persisted snapshot (localStorage) has no metaFilters. */
+export const metaFiltersOf = (mf: MetaListFilters | undefined): MetaListFilters =>
+  mf ?? emptyMetaFilters()
+/** Expand the structured metaFilters into the flat FilterSpec fields the API expects. */
+export const metaFilterFields = (mf: MetaListFilters) => ({
+  includedMeta1: mf.included[0], excludedMeta1: mf.excluded[0],
+  includedMeta2: mf.included[1], excludedMeta2: mf.excluded[1],
+  includedMeta3: mf.included[2], excludedMeta3: mf.excluded[2],
+})
+/** Rebuild the structured metaFilters from the flat fields (e.g. a saved preset). */
+export const metaFiltersFromFields = (g: {
+  includedMeta1?: string[]; excludedMeta1?: string[]
+  includedMeta2?: string[]; excludedMeta2?: string[]
+  includedMeta3?: string[]; excludedMeta3?: string[]
+}): MetaListFilters => ({
+  included: [g.includedMeta1 ?? [], g.includedMeta2 ?? [], g.includedMeta3 ?? []],
+  excluded: [g.excludedMeta1 ?? [], g.excludedMeta2 ?? [], g.excludedMeta3 ?? []],
+})
+
 /** Mirror of Swift's `ChartFilterState`. */
 export interface ChartFilterState {
   fromDate: string
   toDate: string
   includedSteps: string[]
   excludedSteps: string[]
+  metaFilters: MetaListFilters
   meta1Filter: string
   meta2Filter: string
   meta3Filter: string
@@ -97,6 +127,7 @@ export interface ChartFilterState {
 const EMPTY_DURATIONS: DurationStats = {
   minSecs: null,
   avgSecs: null,
+  medianSecs: null,
   stdDevSecs: null,
   maxSecs: null,
 }
@@ -111,6 +142,7 @@ function defaultChartState(
     toDate: to,
     includedSteps: [],
     excludedSteps: [],
+    metaFilters: emptyMetaFilters(),
     meta1Filter: '',
     meta2Filter: '',
     meta3Filter: '',
@@ -157,7 +189,7 @@ export interface AppState {
   projectAggregates: AggregateLink[]
   /** When the current project was reached by drilling into a Σ step, the high-level map to
    *  return to (a "Return" button). Null when not viewing a drilled-into detail project. */
-  drillReturn: { projectId: string; title: string } | null
+  drillReturn: { projectId: number; title: string } | null
   /** In-place drill-down: one or more Σ nodes expanded within the high-level map, using the
    *  ORIGINAL source graph so the revealed steps carry real, un-aggregated numbers. Null
    *  unless a drill is active; drill up clears it. */
@@ -185,6 +217,11 @@ export interface AppState {
   projects: Project[]
   selectedProject: Project | null
   isLoading: boolean
+  // Bumped on every connect/disconnect. In-flight per-connection work (e.g. a
+  // graph load) captures it and discards its result if it changed meanwhile — so a
+  // request whose DB session was torn down by a concurrent connection switch is
+  // superseded silently instead of surfacing a spurious "Not connected" error.
+  connectionGen: number
   errorMessage: string | null
   pendingAlert: AppAlert | null
 
@@ -210,9 +247,13 @@ export interface AppState {
   toDate: string
   includedSteps: string[]
   excludedSteps: string[]
+  metaFilters: MetaListFilters
   meta1Filter: string
   meta2Filter: string
   meta3Filter: string
+  /** Whether the node "Meta Infos" panel is open, and the node it was opened for. */
+  metaInfoOpen: boolean
+  metaInfoNode: string | null
   eventIdFilter: string
   eventIdSuggestions: string[]
   lastQueriedEventId: string
@@ -355,7 +396,7 @@ export interface AppActions {
   listConnectionProjects: (id: string) => Promise<ConnectionProjectsResult>
   deleteConnectionProject: (
     id: string,
-    projectId: string,
+    projectId: number,
   ) => Promise<ConnectionProjectDeleteResult>
 
 
@@ -405,6 +446,13 @@ export interface AppActions {
   setJourneySwimlane: (on: boolean) => void
 
   handleNodeAction: (node: string, action: 'include' | 'exclude') => void
+  // Include/exclude a META value (col 0..2 = Meta_1..3) from the node "Meta Infos" panel.
+  handleMetaAction: (col: number, value: string, action: 'include' | 'exclude') => void
+  clearMetaFilters: () => void
+  // The node "Meta Infos" panel — opened for a specific node, whose valid META values it
+  // lists; the include/exclude filters it sets are still journey-level.
+  openMetaInfo: (node: string) => void
+  closeMetaInfo: () => void
   updateStep: (
     step: string,
     payload: {
@@ -534,6 +582,7 @@ const INITIAL_STATE: AppState = {
   projects: [],
   selectedProject: null,
   isLoading: false,
+  connectionGen: 0,
   errorMessage: null,
   pendingAlert: null,
 
@@ -558,6 +607,9 @@ const INITIAL_STATE: AppState = {
   toDate: today,
   includedSteps: [],
   excludedSteps: [],
+  metaFilters: emptyMetaFilters(),
+  metaInfoOpen: false,
+  metaInfoNode: null,
   meta1Filter: '',
   meta2Filter: '',
   meta3Filter: '',
@@ -666,6 +718,7 @@ export const useStore = create<Store>((set, get) => {
       toDate: string
       includedSteps: string[]
       excludedSteps: string[]
+      metaFilters?: MetaListFilters
       meta1Filter: string
       meta2Filter: string
       meta3Filter: string
@@ -682,6 +735,7 @@ export const useStore = create<Store>((set, get) => {
     toDate: state.toDate,
     includedSteps: state.includedSteps,
     excludedSteps: state.excludedSteps,
+    ...metaFilterFields(metaFiltersOf(state.metaFilters)),
     meta1: state.meta1Filter,
     meta2: state.meta2Filter,
     meta3: state.meta3Filter,
@@ -701,6 +755,7 @@ export const useStore = create<Store>((set, get) => {
       toDate: s.toDate,
       includedSteps: s.includedSteps,
       excludedSteps: s.excludedSteps,
+      metaFilters: s.metaFilters,
       meta1Filter: s.meta1Filter,
       meta2Filter: s.meta2Filter,
       meta3Filter: s.meta3Filter,
@@ -727,6 +782,7 @@ export const useStore = create<Store>((set, get) => {
       toDate: state.toDate,
       includedSteps: state.includedSteps,
       excludedSteps: state.excludedSteps,
+      metaFilters: metaFiltersOf(state.metaFilters),
       meta1Filter: state.meta1Filter,
       meta2Filter: state.meta2Filter,
       meta3Filter: state.meta3Filter,
@@ -787,6 +843,7 @@ export const useStore = create<Store>((set, get) => {
     const durations: DurationStats = {
       minSecs: result.minCycleTimeSecs,
       avgSecs: result.avgCycleTimeSecs,
+      medianSecs: null, // a synthetic simulation has no median cycle time
       stdDevSecs: result.stdDevCycleTimeSecs,
       maxSecs: result.maxCycleTimeSecs,
     }
@@ -853,7 +910,9 @@ export const useStore = create<Store>((set, get) => {
     },
 
     connectConnection: async (conn) => {
-      set({ isLoading: true })
+      // Bump immediately: switching connections tears down the shared DB session
+      // server-side, so any graph load already in flight must be superseded.
+      set((st) => ({ isLoading: true, connectionGen: st.connectionGen + 1 }))
       try {
         const connection = await api.connectConnection(conn.id)
         set({ connection })
@@ -900,6 +959,8 @@ export const useStore = create<Store>((set, get) => {
       const s = get()
       set({
         ...INITIAL_STATE,
+        // Supersede any in-flight per-connection work (INITIAL_STATE would reset this to 0).
+        connectionGen: s.connectionGen + 1,
         // Disconnecting the database must not sign the user out of the app.
         authChecked: s.authChecked,
         authUser: s.authUser,
@@ -1171,6 +1232,7 @@ export const useStore = create<Store>((set, get) => {
         processGraph: EMPTY_GRAPH,
         includedSteps: [],
         excludedSteps: [],
+        metaFilters: emptyMetaFilters(),
         meta1Filter: '',
         meta2Filter: '',
         meta3Filter: '',
@@ -1368,16 +1430,24 @@ export const useStore = create<Store>((set, get) => {
 
     restoreLastSession: async () => {
       const connId = readSetting<string>('session.lastConnectionId', '')
-      const projId = readSetting<string>('session.lastProjectId', '')
+      const projId = readSetting<number>('session.lastProjectId', 0)
       const mode = readSetting<string>('session.lastChartMode', '')
 
       // 1) Auto-reconnect to the last connection, unless we are already on it (e.g. the
       //    server session survived a plain reload). connectConnection loads the projects.
+      //    This is the key "resume after a backend restart" path — the in-memory Exasol
+      //    session is lost on any restart/redeploy, so on reload we transparently
+      //    reconnect instead of leaving the user to reconnect + reselect by hand.
       const before = get()
       if (connId && before.connection.activeProfileId !== connId) {
         const match = before.connections.find((c) => c.id === connId)
-        if (!match) return // connection revoked / no longer assigned — nothing to resume
-        const ok = await get().connectConnection(match)
+        // A loaded list without this connection means it was revoked / unassigned —
+        // nothing to resume. But an EMPTY list is a boot race (the assigned connections
+        // haven't arrived yet); connectConnection only needs the id and the server
+        // re-checks assignment, so attempt the resume with a bare {id} rather than
+        // silently giving up and leaving the user to reconnect by hand.
+        if (!match && before.connections.length > 0) return
+        const ok = await get().connectConnection(match ?? ({ id: connId } as AssignedConnection))
         if (!ok) return // reconnect failed (its own alert already explains why)
       } else if (connId && before.connection.isConnected && before.projects.length === 0) {
         await get().loadProjects()
@@ -1514,6 +1584,7 @@ export const useStore = create<Store>((set, get) => {
           journeyCount: null,
           includedSteps: [],
           excludedSteps: [],
+          metaFilters: emptyMetaFilters(),
           meta1Filter: '',
           meta2Filter: '',
           meta3Filter: '',
@@ -1765,6 +1836,7 @@ export const useStore = create<Store>((set, get) => {
         toDate: s.toDate,
         includedSteps: s.includedSteps,
         excludedSteps: s.excludedSteps,
+        ...metaFilterFields(metaFiltersOf(s.metaFilters)),
         meta1: s.meta1Filter,
         meta2: s.meta2Filter,
         meta3: s.meta3Filter,
@@ -1784,6 +1856,7 @@ export const useStore = create<Store>((set, get) => {
         toDate: s.initialToDate,
         includedSteps: [],
         excludedSteps: [],
+        metaFilters: emptyMetaFilters(),
         meta1Filter: '',
         meta2Filter: '',
         meta3Filter: '',
@@ -1799,6 +1872,11 @@ export const useStore = create<Store>((set, get) => {
     reloadGraph: async () => {
       const s = get()
       if (!s.selectedProject) return
+      // Tie this load to the current connection. If a connect/disconnect happens
+      // while the request is in flight (the shared DB session is torn down), the
+      // response — or a "Not connected" error — belongs to a connection that is no
+      // longer active, so it is discarded rather than shown or alerted.
+      const gen = s.connectionGen
       set({ isLoading: true, errorMessage: null })
       try {
         const result = await api.graph(
@@ -1806,6 +1884,7 @@ export const useStore = create<Store>((set, get) => {
           get().currentFilterSpec(),
           { totalJourneyCount: s.totalJourneyCount },
         )
+        if (get().connectionGen !== gen) return  // superseded by a connection switch
         set({
           processGraph: result.processGraph,
           journeyCount: result.journeyCount,
@@ -1849,6 +1928,10 @@ export const useStore = create<Store>((set, get) => {
           await get().refreshHappyPathConformance()
         }
       } catch (error) {
+        // A load whose connection was swapped out mid-flight failed because the
+        // session is gone, not because anything is wrong — swallow it; the newer
+        // load owns the UI now.
+        if (get().connectionGen !== gen) return
         const message = error instanceof ApiError ? error.message : String(error)
         set({ errorMessage: message })
         get().showAlert({
@@ -1859,7 +1942,9 @@ export const useStore = create<Store>((set, get) => {
           secondaryLabel: 'Cancel',
         })
       } finally {
-        set({ isLoading: false })
+        // Only clear the spinner if this load is still the current one; a superseded
+        // load must not switch off the spinner a newer load turned on.
+        if (get().connectionGen === gen) set({ isLoading: false })
       }
     },
 
@@ -2177,6 +2262,29 @@ export const useStore = create<Store>((set, get) => {
       void get().reloadGraph()
     },
 
+    handleMetaAction: (col, value, action) => {
+      if (col < 0 || col > 2) return
+      const mf = metaFiltersOf(get().metaFilters)
+      const included = mf.included.map((l) => [...l]) as [string[], string[], string[]]
+      const excluded = mf.excluded.map((l) => [...l]) as [string[], string[], string[]]
+      const already = (action === 'include' ? included : excluded)[col].includes(value)
+      // Toggle: clicking the active side again clears it; otherwise set that side and
+      // drop the value from the opposite side (a value is included OR excluded, not both).
+      included[col] = included[col].filter((v) => v !== value)
+      excluded[col] = excluded[col].filter((v) => v !== value)
+      if (!already) (action === 'include' ? included : excluded)[col].push(value)
+      set({ metaFilters: { included, excluded } })
+      void get().reloadGraph()
+    },
+
+    clearMetaFilters: () => {
+      set({ metaFilters: emptyMetaFilters() })
+      void get().reloadGraph()
+    },
+
+    openMetaInfo: (node) => set({ metaInfoOpen: true, metaInfoNode: node }),
+    closeMetaInfo: () => set({ metaInfoOpen: false }),
+
     updateStep: async (step, payload) => {
       const s = get()
       if (!s.selectedProject) return
@@ -2209,6 +2317,7 @@ export const useStore = create<Store>((set, get) => {
         toDate: s.toDate,
         includedSteps: s.includedSteps,
         excludedSteps: s.excludedSteps,
+        ...metaFilterFields(metaFiltersOf(s.metaFilters)),
         meta1: s.meta1Filter,
         meta2: s.meta2Filter,
         meta3: s.meta3Filter,
@@ -2252,6 +2361,8 @@ export const useStore = create<Store>((set, get) => {
         toDate: toISODate(group.toDate),
         includedSteps: group.includedSteps,
         excludedSteps: group.excludedSteps,
+        // Restore the preset's META value include/exclude lists (empty for older presets).
+        metaFilters: metaFiltersFromFields(group),
         meta1Filter: group.meta1,
         meta2Filter: group.meta2,
         meta3Filter: group.meta3,
@@ -2618,6 +2729,11 @@ export function aChartFilterSummary(state: AppState): string {
   if (s.includedSteps.length) parts.push(`include: ${[...s.includedSteps].sort().join(', ')}`)
   if (s.excludedSteps.length) parts.push(`exclude: ${[...s.excludedSteps].sort().join(', ')}`)
   for (const m of [s.meta1Filter, s.meta2Filter, s.meta3Filter]) if (m) parts.push(m)
+  const mf = metaFiltersOf(s.metaFilters)
+  for (let c = 0; c < 3; c++) {
+    if (mf.included[c].length) parts.push(`M${c + 1} include: ${[...mf.included[c]].sort().join(', ')}`)
+    if (mf.excluded[c].length) parts.push(`M${c + 1} exclude: ${[...mf.excluded[c]].sort().join(', ')}`)
+  }
   return parts.join(' · ')
 }
 

@@ -909,6 +909,19 @@ def test_use_materialized_flag_persists_and_defaults_off(security):
     assert store.get_connection(on.id).use_materialized_transitions is False
 
 
+def test_use_indb_sampling_flag_persists_and_defaults_off(security):
+    store = security.store
+    off = _make_conn(store)
+    assert off.use_indb_sampling is False  # off by default
+    assert off.admin_public()["useInDbSampling"] is False
+
+    on = _make_conn(store, name="Sampling", useInDbSampling=True)
+    assert store.get_connection(on.id).use_indb_sampling is True
+
+    store.upsert_connection({"id": on.id, "name": "Sampling", "useInDbSampling": False})
+    assert store.get_connection(on.id).use_indb_sampling is False
+
+
 def test_rebuild_token_is_per_connection(security):
     store = security.store
     a, b = "conn-a", "conn-b"

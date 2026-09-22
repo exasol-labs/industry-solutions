@@ -127,6 +127,7 @@
     <tbody>
       <tr><td><b># Count</b></td><td>Number of times the transition occurred.</td></tr>
       <tr><td><b>⏱ Avg Time</b></td><td>Mean time between the two steps.</td></tr>
+      <tr><td><b>½ Median Time</b></td><td>Median time between the two steps (the database <code>MEDIAN</code>).</td></tr>
       <tr><td><b>⌄ Min Time</b></td><td>Shortest observed time.</td></tr>
       <tr><td><b>⌃ Max Time</b></td><td>Longest observed time.</td></tr>
       <tr><td><b>〰 Std Dev</b></td><td>Standard deviation of the transition times.</td></tr>
@@ -166,7 +167,7 @@
   <ol class="steps">
     <li>Click the legend card (tooltip "Configure edge colour schema per metric") to open the <b>Edge Colour Schema</b> sheet.</li>
     <li>Use the <b>Colorise edges by weight</b> switch at the top to turn colouring on or off globally.</li>
-    <li>For each metric — Count, Avg Time, Min Time, Max Time, Std Dev — pick a schema from its dropdown. A live gradient preview updates beside it.</li>
+    <li>For each metric — Count, Avg Time, Median Time, Min Time, Max Time, Std Dev — pick a schema from its dropdown. A live gradient preview updates beside it.</li>
     <li>Choose <b>Reset to defaults</b> to restore the per-metric defaults, or <b>Done</b> to close.</li>
   </ol>
 
@@ -287,9 +288,11 @@
 
   <p>With data present, a right-aligned footer reads "Query time: N ms" (or "N.NN s" for longer queries). Its tooltip — "Server-side execution time of the queries behind this view" — is a reminder that this figure measures the database, not the browser.</p>
 
-  <h3 id="ch9-sankey">Flowchart or Sankey</h3>
+  <h3 id="ch9-sankey">Flowchart orientation, or Sankey</h3>
 
-  <p>A small switch floats at the top of the A-Chart and B-Chart canvas — <b>🕸 Flowchart</b> / <b>🌊 Sankey</b> — exactly like the Flowchart/Swimlane switch on the Individual Journey. It flips the same data between two renderings; your choice is remembered per user and applies to both charts.</p>
+  <p>A small switch floats at the top of the A-Chart and B-Chart canvas with three options — <b>🕸 Flowchart</b> / <b>➡ Horizontal</b> / <b>🌊 Sankey</b>. It flips the same data between renderings; your choice is remembered per user and applies to both charts.</p>
+
+  <p>The first two are the <b>same directed-follows flowchart</b> in two orientations. <b>🕸 Flowchart</b> lays the process out <b>top-down</b> (the default): the start markers are above the first steps and the flow runs downward. <b>➡ Horizontal</b> lays exactly the same map out <b>left-to-right</b> — layers become columns, the start markers sit to the left of the first steps and the end markers to the right, and the edges curve sideways. Everything else is identical: the node badges, the grouping boxes, the metric on the edges, the node context menu and the transition table all behave the same. Horizontal is often the more natural reading order for a long, mostly-sequential process, or when you want a wide process to fill a wide screen. Node positions you drag are remembered <b>separately per orientation</b>, so switching back and forth never disturbs a layout you have arranged.</p>
 
   <p>The <b>Sankey</b> view draws the process as a left-to-right flow: each band is a transition, and its width follows the <b>currently selected transition metric</b> (the same chips as the flowchart — # Count, % Percentage, Journey %, Avg / Min / Max Time, Std Dev), so switching the metric re-weights the flows just as it re-weights the flowchart's edges. A footer states which metric the widths encode. Nodes are laid out in columns by their distance from the start. Hover any band for its value in that metric plus its share of the source step's outflow and journey count; hover a node for its throughput. Whatever you hover stays lit while everything else dims, which makes a single path easy to trace.</p>
 
@@ -319,6 +322,8 @@
   <figure data-fig="app-11-a-b-comparison"><figcaption>A/B Comparison: panel A on the left, panel B on the right, with the valve button between them and the similarity badge along the bottom.</figcaption></figure>
 
   <p>A/B Comparison places the two charts side by side — A on the left, B on the right. Each panel has its own header, an optional KPI strip, its own "Date &amp; Metrics" card and its own flowchart. The panels map onto the saved A-Chart and B-Chart states, so anything you already configured in those modes is what you see here. The active side starts as A.</p>
+
+  <p>The strip between the two panels carries two buttons. The <b>⇄ valve</b> synchronises panning, zooming and reset across both sides (see below). Below it, an <b>orientation toggle</b> (<b>➡</b> when the maps are top-down, <b>⬇</b> when they are left-to-right) flips <b>both</b> panels between the top-down and horizontal flowchart layouts at once — the same setting as the A-Chart/B-Chart switch above, so the two stay in step.</p>
 
   <h3 id="ch9-ab-active">Choosing the active side</h3>
 

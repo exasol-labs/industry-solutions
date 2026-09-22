@@ -172,7 +172,7 @@ def _public_action(a: dict) -> dict:
 
 
 @router.get("/projects/{project_id}/actions")
-async def list_actions(project_id: str, connectionId: str = "") -> dict[str, Any]:
+async def list_actions(project_id: int, connectionId: str = "") -> dict[str, Any]:
     """The saved actions for this (connection, project). Available to any run-role
     user assigned to the connection — the app lists them in node context menus."""
     _require_actions_enabled()
@@ -182,7 +182,7 @@ async def list_actions(project_id: str, connectionId: str = "") -> dict[str, Any
 
 
 @router.post("/projects/{project_id}/actions")
-async def create_action(project_id: str, body: ActionSaveBody) -> dict[str, Any]:
+async def create_action(project_id: int, body: ActionSaveBody) -> dict[str, Any]:
     _require_actions_enabled()
     _require_author_role()
     _require_assigned_connection(body.connectionId)
@@ -206,7 +206,7 @@ async def create_action(project_id: str, body: ActionSaveBody) -> dict[str, Any]
 
 
 @router.put("/projects/{project_id}/actions/{action_id}")
-async def update_action(project_id: str, action_id: str, body: ActionSaveBody) -> dict[str, Any]:
+async def update_action(project_id: int, action_id: str, body: ActionSaveBody) -> dict[str, Any]:
     _require_actions_enabled()
     _require_author_role()
     _require_assigned_connection(body.connectionId)
@@ -233,7 +233,7 @@ async def update_action(project_id: str, action_id: str, body: ActionSaveBody) -
 
 
 @router.delete("/projects/{project_id}/actions/{action_id}")
-async def delete_action(project_id: str, action_id: str, connectionId: str = "") -> dict[str, bool]:
+async def delete_action(project_id: int, action_id: str, connectionId: str = "") -> dict[str, bool]:
     _require_actions_enabled()
     _require_author_role()
     _require_assigned_connection(connectionId)
@@ -339,7 +339,7 @@ async def _run_flowchart(spec: ActionSpecModel, f: FilterSpec) -> dict[str, Any]
         await mgr.disconnect()
 
 
-async def _execute(project_id: str, spec: ActionSpecModel, body: ActionRunBody) -> dict[str, Any]:
+async def _execute(project_id: int, spec: ActionSpecModel, body: ActionRunBody) -> dict[str, Any]:
     f = body.filter
 
     if spec.show.kind == "flowchart":
@@ -410,7 +410,7 @@ async def _execute(project_id: str, spec: ActionSpecModel, body: ActionRunBody) 
 
 
 @router.post("/projects/{project_id}/actions/{action_id}/run")
-async def run_action(project_id: str, action_id: str, body: ActionRunBody) -> dict[str, Any]:
+async def run_action(project_id: int, action_id: str, body: ActionRunBody) -> dict[str, Any]:
     """Run a saved action against the connected database, scoped to the clicked
     node's resolved neighbour set and the chart's current filter."""
     _require_actions_enabled()
@@ -425,7 +425,7 @@ async def run_action(project_id: str, action_id: str, body: ActionRunBody) -> di
 
 
 @router.post("/projects/{project_id}/actions/preview-run")
-async def preview_run_action(project_id: str, body: ActionPreviewBody) -> dict[str, Any]:
+async def preview_run_action(project_id: int, body: ActionPreviewBody) -> dict[str, Any]:
     """Run an unsaved spec — the Actions builder's Test panel. Author-role only."""
     _require_actions_enabled()
     _require_author_role()
@@ -439,7 +439,7 @@ async def preview_run_action(project_id: str, body: ActionPreviewBody) -> dict[s
 
 
 @router.post("/projects/{project_id}/actions/preview-sql")
-async def preview_sql(project_id: str, body: ActionPreviewBody) -> dict[str, str]:
+async def preview_sql(project_id: int, body: ActionPreviewBody) -> dict[str, str]:
     """The Exasol SQL a spec would run — shown in the builder so authors can see the
     translation. Builds the string only (no execution), so it works without a live
     connection; an empty node set yields a placeholder."""

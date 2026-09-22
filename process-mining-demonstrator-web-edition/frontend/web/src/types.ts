@@ -54,7 +54,8 @@ export interface ManagedConnection {
 
 /** One project stored in a connection's schema, with its journey/event counts. */
 export interface ConnectionProject {
-  projectId: string
+  projectId: number
+  titleShort: string
   title: string
   journeys: number
   events: number
@@ -75,9 +76,10 @@ export interface ConnectionProjectDeleteResult {
 }
 
 export interface Project {
-  projectId: string
+  projectId: number
   title: string
   description: string
+  titleShort: string
 }
 
 export interface StepInfo {
@@ -97,6 +99,7 @@ export interface ProcessTransition {
   toStep: string
   occurrences: number
   avgSecs: number | null
+  medianSecs: number | null
   minSecs: number | null
   maxSecs: number | null
   stdDevSecs: number | null
@@ -123,6 +126,14 @@ export interface JourneyEvent {
   eventTime: string
 }
 
+/** One META value on a node's events (Meta Infos panel): the value, the date/time it was
+ *  last seen (``YYYY-MM-DD HH:MM:SS``, empty when unknown), and its occurrence count. */
+export interface MetaEntry {
+  value: string
+  time: string
+  count: number
+}
+
 export interface DurationBucket {
   label: string
   count: number
@@ -136,6 +147,7 @@ export interface JourneyTimePoint {
 export interface DurationStats {
   minSecs: number | null
   avgSecs: number | null
+  medianSecs: number | null
   stdDevSecs: number | null
   maxSecs: number | null
 }
@@ -145,6 +157,7 @@ export const TRANSITION_METRICS = [
   'Percentage',
   'Journey %',
   'Avg Time',
+  'Median Time',
   'Min Time',
   'Max Time',
   'Std Dev',
@@ -179,6 +192,8 @@ export function metricValue(
       return null
     case 'Avg Time':
       return t.avgSecs
+    case 'Median Time':
+      return t.medianSecs
     case 'Min Time':
       return t.minSecs
     case 'Max Time':
@@ -301,6 +316,13 @@ export interface FilterSpec {
   meta1: string
   meta2: string
   meta3: string
+  // List-based META value include/exclude (optional; backend defaults to empty lists).
+  includedMeta1?: string[]
+  excludedMeta1?: string[]
+  includedMeta2?: string[]
+  excludedMeta2?: string[]
+  includedMeta3?: string[]
+  excludedMeta3?: string[]
   minSteps: number
   maxSteps: number
   minJourneyTime: number
@@ -320,6 +342,13 @@ export interface FilterGroup {
   meta1: string
   meta2: string
   meta3: string
+  // List-based META value include/exclude (optional — older stored presets omit them).
+  includedMeta1?: string[]
+  excludedMeta1?: string[]
+  includedMeta2?: string[]
+  excludedMeta2?: string[]
+  includedMeta3?: string[]
+  excludedMeta3?: string[]
   minSteps: number
   maxSteps: number
   minJourneyTime: number
@@ -566,13 +595,14 @@ export interface DocumentationResponse {
 }
 
 export const KPI_DEFAULT_ORDER =
-  'totalJourneys,filteredJourneys,shortestJourney,avgJourney,stdDev,longestJourney,graphValue,processGoodness,processSimilarity,activeSample'
+  'totalJourneys,filteredJourneys,shortestJourney,avgJourney,medianJourney,stdDev,longestJourney,graphValue,processGoodness,processSimilarity,activeSample'
 
 export const KPI_META: Record<string, { label: string; icon: string }> = {
   totalJourneys: { label: 'Total Journeys', icon: '👥' },
   filteredJourneys: { label: 'Filtered Journeys', icon: '⛃' },
   shortestJourney: { label: 'Shortest Journey', icon: '🐇' },
   avgJourney: { label: 'Avg Journey', icon: '⏱️' },
+  medianJourney: { label: 'Median Journey', icon: '◑' },
   stdDev: { label: 'Std Dev', icon: '〰️' },
   longestJourney: { label: 'Longest Journey', icon: '🐢' },
   graphValue: { label: 'Graph Value', icon: 'ƒ' },
@@ -623,6 +653,55 @@ export interface IntegrationStatus {
   /** False when the whole watchdog loop is disabled for the deployment, in which case
    *  an "on" watchdog still never polls. */
   watchdogEnabled: boolean
+}
+
+/** One API Server - Event Receiver in the live monitor: its config, whether its listener
+ *  answered a localhost /health probe, and the destination-DB counts for its project. */
+export interface SinkMonitorEntry {
+  id: string
+  name: string
+  port: number
+  activeScheme: string
+  titleShort: string
+  connectionId: string
+  connectionName: string | null
+  schema: string | null
+  /** The sink's /health answered 200 on its live listener (true per-port liveness). */
+  live: boolean
+  /** Destination-DB counts for the sink's project (null when the DB couldn't be read). */
+  events: number | null
+  journeys: number | null
+  lastEventAt: string | null
+  /** Per-sink problem (connection not assigned, DB unreachable, …); null when fine. */
+  error: string | null
+}
+
+export interface SinkMonitor {
+  /** The API Server - Event Receiver module is switched on in the admin interface. */
+  moduleEnabled: boolean
+  /** The sink supervisor process is running (its PID file exists). */
+  supervisorRunning: boolean
+  sinks: SinkMonitorEntry[]
+}
+
+/** One process (project) shown as a tile on the end-user launch page (/home). */
+export interface PortalProcess {
+  projectId: number
+  title: string
+  titleShort: string
+  journeys: number
+  events: number
+  lastEventAt: string | null
+}
+
+/** The processes available to the user in one connection, for the launch page. */
+export interface PortalConnection {
+  id: string
+  name: string
+  schema: string | null
+  /** Set when the connection's schema couldn't be read (its tile group shows the note). */
+  error: string | null
+  projects: PortalProcess[]
 }
 
 /** "aux" is a helper field: extracted like the others but written to no column — it

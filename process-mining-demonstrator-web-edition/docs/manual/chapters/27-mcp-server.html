@@ -1,0 +1,152 @@
+<section class="chapter" id="ch-mcp-server" data-title="The MCP Server" data-num="27">
+<h1><span class="chnum">27</span> The MCP Server</h1>
+
+<p class="chintro">The previous chapter described how an external program pushes data <em>into</em> the demonstrator. The <em>MCP Server</em> is the mirror image: a read-only endpoint through which an AI client &mdash; Claude, ChatGPT or any other client that speaks the Model Context Protocol &mdash; asks the demonstrator questions and gets analysis back. It exposes nine tools covering connections, projects, metadata, the process map, transition metrics, variants, statistics, journey search and single-journey lookup, most of which share the same filter vocabulary as the application. Nothing it offers can write: there is no ingest, no edit, no sampling. This chapter explains what the server is for, how an administrator turns it on, how the identity chain from an OAuth token to a Process Mining user works, how to configure Authentik and the server itself, what each tool returns, what to watch for behind a reverse proxy, and how to read its error codes.</p>
+
+<div class="role">Requires: <b>Administrator</b> to configure the OAuth settings and enable the module, in the admin interface (HTTP :8090, HTTPS :8453). Callers need no human role at the endpoint &mdash; they present an OAuth access token issued by your Authentik server, which is mapped to an existing Process Mining user. The module is <b>off</b> until an administrator enables it.</div>
+
+<div class="warn"><strong>OAuth only, directory-backed</strong> The MCP server authenticates callers <b>exclusively via OAuth</b> &mdash; it has no login of its own. You must deploy an OAuth provider such as <b>Authentik</b> or <b>Keycloak</b> and configure it in the Administration page (<b>MCP Server</b>), with user federation from <b>OpenLDAP</b> or <b>Active Directory</b>. Only Process Mining users defined in a configured directory service can use the MCP server.</div>
+
+<h2 id="mcp-what">27.1 What the MCP server is, and when to use one</h2>
+
+<p>The Model Context Protocol is a convention by which an AI client discovers and calls tools on a remote server. The demonstrator implements it as a seventh surface so that a question asked in a chat &mdash; <em>&ldquo;which variants dominate the credit application process?&rdquo;</em>, <em>&ldquo;how much slower are international passengers?&rdquo;</em> &mdash; can be answered from live data rather than from a screenshot pasted into the conversation.</p>
+
+<p>It answers the same questions the work bench answers, through the same analytical code, with the same filters. What it does not do is replace the work bench: there is no map to look at, no drill-down, no A/B view. Reach for the MCP server when the analysis needs to reach a person or a system <em>outside</em> the application &mdash; a written summary, a comparison across projects, a figure quoted in a report &mdash; and use the application itself when you want to see the process.</p>
+
+<table>
+<thead><tr><th></th><th>API Server - Event Receiver</th><th>MCP Server</th></tr></thead>
+<tbody>
+<tr><td>Direction</td><td>The caller <b>writes</b> journey events.</td><td>The caller <b>reads</b> analysis.</td></tr>
+<tr><td>Authentication</td><td>A per-sink bearer token the demonstrator issues.</td><td>An OAuth access token your Authentik issues.</td></tr>
+<tr><td>Scope of access</td><td>One connection and one project, fixed per sink.</td><td>Every connection assigned to the mapped user.</td></tr>
+<tr><td>Ports</td><td>A pool: <code>8120&ndash;8129</code> / <code>8483&ndash;8492</code>.</td><td>A single pair: <code>8130</code> / <code>8493</code>.</td></tr>
+<tr><td>Can it change data?</td><td>Yes &mdash; that is its purpose.</td><td>No. There are no writing tools.</td></tr>
+</tbody>
+</table>
+
+<h2 id="mcp-enable">27.2 Enabling the module</h2>
+
+<p>Like Actions and the Event Receiver, the MCP server is opt-in. In the admin interface open the <strong>MCP Server</strong> tab, fill in the OAuth settings described in section 27.5, press <strong>Test Authentik</strong>, and only then tick <strong>Enable the MCP server</strong>. Enabling and disabling take effect immediately and need no restart; while the module is off the port stays bound but every request is answered with <code>503</code>.</p>
+
+<p>The server listens on the admin port <b>+40</b>: container <code>8130</code> for HTTP and <code>8493</code> for HTTPS, published on the host with the usual <code>+10000</code> offset as <code>18130</code> and <code>18493</code>. Which of the two is live follows the deployment's TLS mode and certificate, exactly as for the other surfaces (chapter 2).</p>
+
+<div class="warn"><strong>Use HTTPS</strong> OAuth clients require it for anything that is not a loopback address, so in practice the MCP server is only reachable by a hosted client when TLS is on. Turn it on in the <b>TLS / SSL</b> tab; a TLS change takes effect after <b>&#8635; Restart app server</b> in App Control.</div>
+
+<h2 id="mcp-identity">27.3 The identity chain</h2>
+
+<p>Every call carries an <code>Authorization: Bearer</code> header holding an access token. The server resolves that token to a Process Mining user in five steps, and a failure at any one of them is reported distinctly:</p>
+
+<ol class="steps">
+<li><b>Signature.</b> The token must be an RS256 JWT signed by a key published in your Authentik's JWKS document. Verification is offline &mdash; the keys are fetched once and cached &mdash; so no call is made to Authentik per request.</li>
+<li><b>Issuer.</b> The token's <code>iss</code> must match the configured issuer. Authentik emits it with a trailing slash; both spellings are accepted, so you may configure either.</li>
+<li><b>Audience.</b> Checked only if you have filled in the <b>Audience</b> field. Authentik does not set <code>aud</code> to the client id unless you add a property mapping, so leaving the field blank is normal and the other checks still apply.</li>
+<li><b>Group.</b> If a <b>Required group</b> is configured, the token's <code>groups</code> claim must contain it. This is a second gate in addition to whatever binding you placed on the Authentik application.</li>
+<li><b>User.</b> The <b>username claim</b> (default <code>preferred_username</code>) is matched, case-insensitively, against the Process Mining user list. The user must already exist and be enabled.</li>
+</ol>
+
+<p>Once mapped, that user's <b>assigned database connections</b> decide what the caller may see &mdash; the same boundary the application enforces for the same person signing in through the browser. A connection not assigned to them is not listed by <code>list_connections</code> and is refused if named directly.</p>
+
+<div class="note"><strong>Note</strong> The MCP user is a Process Mining user like any other, created in the admin interface's <b>Users</b> tab and given connections in <b>Database Connections</b>. Authentik decides <em>who may connect</em>; the demonstrator decides <em>what they may see</em>. Neither substitutes for the other.</div>
+
+<h2 id="mcp-authentik">27.4 Configuring Authentik</h2>
+
+<p>On the Authentik side you need one provider and one application.</p>
+
+<ol class="steps">
+<li>Create an <b>OAuth2/OpenID Provider</b>. Give it your standard authorization flow, and choose client type <b>Public</b> for interactive clients that use PKCE, or <b>Confidential</b> if the client stores a secret.</li>
+<li>Give the provider an <b>RSA signing key</b>. This is what makes the access token a verifiable RS256 JWT; without it the MCP server cannot check the signature offline.</li>
+<li>Add the client's <b>redirect URIs</b>. A hosted client has a fixed callback &mdash; for Claude it is <code>https://claude.ai/api/mcp/auth_callback</code>. A client that runs on the user's own machine binds a random loopback port instead, so it needs a port-agnostic pattern in regular-expression matching mode rather than a fixed URI.</li>
+<li>Include the scopes <code>openid</code>, <code>profile</code> and <code>email</code>, plus <code>offline_access</code> if you want the client to be able to refresh its token.</li>
+<li>Create an <b>Application</b> bound to that provider and give it a slug. The slug determines the issuer URL, so note it: <code>https://&lt;authentik&gt;/application/o/&lt;slug&gt;/</code>.</li>
+<li>Restrict who may use the application with a policy, group or user binding.</li>
+</ol>
+
+<div class="tip"><strong>Dynamic Client Registration</strong> Some clients register themselves rather than being handed a client id. If yours does, enable DCR on the provider &mdash; the client then supplies its own redirect URI at registration time and the fixed list above is not consulted for it. If DCR is off and the client expects it, sign-in fails before any redirect URI is ever compared, which makes it look like a redirect problem when it is not.</div>
+
+<h2 id="mcp-configure">27.5 Configuring the MCP server</h2>
+
+<p>In the admin interface's <b>MCP Server</b> tab:</p>
+
+<dl>
+<dt>Issuer URL</dt><dd>The application's issuer, <code>https://&lt;authentik&gt;/application/o/&lt;slug&gt;/</code>. It must be the URL the <em>client</em> can reach, not an internal one &mdash; discovery is performed by the client, from wherever it runs.</dd>
+<dt>JWKS URL</dt><dd>Leave blank to auto-discover from the issuer, or paste the <code>&hellip;/jwks/</code> endpoint explicitly.</dd>
+<dt>Audience / Client ID</dt><dd>Only if you mapped an <code>aud</code> claim onto the access token. Blank disables the check.</dd>
+<dt>Required group</dt><dd>Optional. Matched against the token's <code>groups</code> claim.</dd>
+<dt>Username claim</dt><dd>Which claim carries the username. Default <code>preferred_username</code>; use <code>email</code> if your Process Mining usernames are email addresses.</dd>
+</dl>
+
+<p><b>Test Authentik</b> fetches the discovery document and the JWKS and reports how many signing keys it found. Use it before enabling the module, and again after any change &mdash; it catches an unreachable host or a wrong slug immediately.</p>
+
+<div class="warn"><strong>The test does not exercise token validation</strong> It confirms that Authentik is reachable and publishing keys, which is necessary but not sufficient. A configuration that passes the test can still reject every token, so verify with a real client before declaring success.</div>
+
+<h2 id="mcp-tools">27.6 The tools</h2>
+
+<table>
+<thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th></tr></thead>
+<tbody>
+<tr><td><code>list_connections</code></td><td>&mdash;</td><td>The connections assigned to you: id, name, schema.</td></tr>
+<tr><td><code>list_projects</code></td><td><code>connectionId</code> (optional), <code>includeCounts</code></td><td>The projects on that connection &mdash; or, with <code>connectionId</code> omitted, on every connection assigned to you: id, title, description, short code, and with <code>includeCounts</code> the journey count.</td></tr>
+<tr><td><code>get_metadata</code></td><td><code>connectionId</code>, <code>projectId</code></td><td>The three meta-attribute titles, the step names, and the event date range.</td></tr>
+<tr><td><code>get_process_map</code></td><td>+ filter</td><td>The directly-follows map: steps as nodes, transitions as edges, with occurrence counts and timing.</td></tr>
+<tr><td><code>get_transition_metrics</code></td><td>+ filter</td><td>Per step pair: count and average, minimum, maximum and standard deviation of the transition time in seconds.</td></tr>
+<tr><td><code>get_variants</code></td><td>+ filter, <code>limit</code></td><td>Distinct journey paths and how often each occurs, most frequent first.</td></tr>
+<tr><td><code>get_statistics</code></td><td>+ filter</td><td>Journey count, journey-duration statistics, and the process-goodness score.</td></tr>
+<tr><td><code>get_journey</code></td><td><code>connectionId</code>, <code>projectId</code>, <code>eventId</code></td><td>One case's events in time order, with its meta values, start and end timestamps and total duration.</td></tr>
+<tr><td><code>find_journeys</code></td><td>+ filter, <code>orderBy</code>, <code>limit</code>, duration and step-count bounds, <code>includePath</code></td><td>One row per matching case: stored id, start and end, duration, step count and meta values &mdash; the individual journeys behind an aggregate.</td></tr>
+</tbody>
+</table>
+
+<p><code>connectionId</code> is the connection's string identifier as <code>list_connections</code> returns it; <code>projectId</code> is an integer as <code>list_projects</code> returns it. Mixing the two up is the most common first mistake.</p>
+
+<p><code>get_journey</code> is the odd one out: it takes no filter, and it returns individual events rather than an aggregate. It exists because every other tool summarises many journeys, so a question about <em>one</em> case &mdash; what actually happened to booking <code>FLT-000123</code> &mdash; has no answer in a summary.</p>
+
+<p><code>find_journeys</code> is what gets you there when you do <em>not</em> already know the case id. It applies the ordinary filter, then returns the matching cases themselves rather than a summary of them, ordered by <code>orderBy</code>: <code>DURATION_DESC</code> (the default, slowest first), <code>DURATION_ASC</code>, <code>START_DESC</code>, <code>START_ASC</code>, <code>STEPS_DESC</code> or <code>STEPS_ASC</code>. <code>limit</code> defaults to 20; <code>minDurationSecs</code>, <code>maxDurationSecs</code>, <code>minSteps</code> and <code>maxSteps</code> bound the whole journey rather than an individual event; and <code>includePath</code> adds each journey's full step path, which costs an extra aggregation and is therefore off by default. The usual shape of an investigation is three calls: <code>get_statistics</code> for the average, <code>find_journeys</code> for the outliers behind it, then <code>get_journey</code> for the one case that explains them.</p>
+
+<p><code>list_projects</code> spans connections for the same reason. Asked which process is the largest, a client that must call it once per connection and then <code>get_statistics</code> once per project spends a dozen round trips on a one-line answer; omitting <code>connectionId</code> and setting <code>includeCounts</code> answers it in one. Each entry names the connection it came from, and a connection that cannot be opened is reported as a single entry carrying <code>error</code> &mdash; one unreachable database degrades that row instead of failing the listing.</p>
+
+<div class="note"><strong>Note</strong> <code>JOURNEYS</code> never stores a case id in the clear: ingest writes its <b>MD5 digest</b>, whether the events arrived from a file import or from a sink. <code>get_journey</code> therefore applies the application's own normalisation &mdash; a business id such as <code>FLT-000123</code> is hashed before the lookup, while a 32-character hex string is taken to be an already-stored id. Both reach the same journey the individual-journey view shows, and neither requires the caller to know that any hashing happens. <code>find_journeys</code> reports the stored digest as its <code>eventId</code>, since the plaintext id is nowhere to report; feeding that value straight back to <code>get_journey</code> is the intended drill-down.</div>
+
+<h2 id="mcp-filter">27.7 The filter vocabulary</h2>
+
+<p>The four analytical tools accept the same optional filter, mirroring the application's own:</p>
+
+<dl>
+<dt><code>fromDate</code>, <code>toDate</code></dt><dd>ISO dates bounding the events. Day granularity &mdash; there is no time-of-day filtering.</dd>
+<dt><code>includedSteps</code></dt><dd>Keep only journeys that visit <b>all</b> of the named steps.</dd>
+<dt><code>excludedSteps</code></dt><dd>Drop journeys that visit <b>any</b> of the named steps.</dd>
+<dt><code>meta1</code>, <code>meta2</code>, <code>meta3</code></dt><dd>Match on the three meta attributes, whatever <code>get_metadata</code> reports them to be titled for that project.</dd>
+<dt><code>sampleSet</code></dt><dd><code>ORIGINAL</code> (the default), or <code>SAMPLE_1</code>, <code>SAMPLE_2</code>, <code>SAMPLE_3</code>.</dd>
+</dl>
+
+<div class="tip"><strong>Splitting a population</strong> Because <code>includedSteps</code> is an AND and <code>excludedSteps</code> is a NOT-ANY, a two-way split is expressed as one call each way on the step that distinguishes them. In the shipped airport dataset, excluding <code>ENTER Passport Control</code> gives the domestic journeys and including it gives the international ones; the two counts add up to the unfiltered total. An either/or question &mdash; &ldquo;denied boarding, domestic <em>or</em> international&rdquo; &mdash; needs one call per alternative, because no filter expresses OR.</div>
+
+<h2 id="mcp-proxy">27.8 Behind a reverse proxy</h2>
+
+<p>Exposing the MCP server under a public domain is the normal deployment, because a hosted AI client has to reach it from the internet. Three things must be right, and two of them are easy to get wrong.</p>
+
+<ol class="steps">
+<li><b>Preserve the path.</b> Forward <code>/mcp</code> to the backend as <code>/mcp</code>. In nginx a <code>proxy_pass</code> with a trailing slash strips the prefix and the backend answers <code>404</code>.</li>
+<li><b>Route the discovery paths too.</b> When an unauthenticated call arrives, the server answers <code>401</code> with a <code>WWW-Authenticate</code> header pointing at <code>/.well-known/oauth-protected-resource</code> &mdash; at the <b>root of the host</b>, not under <code>/mcp</code>. A proxy that routes only <code>/mcp</code> sends that request somewhere else, the client cannot discover the authorization server, and it reports a sign-in failure that looks nothing like a routing problem.</li>
+<li><b>Advertise reachable URLs.</b> Send <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code> so the metadata carries the public address. The issuer it names must resolve <b>from the client's network</b>; an internal hostname or a Docker-internal name is unreachable for a hosted client and the connection will never complete.</li>
+</ol>
+
+<h2 id="mcp-errors">27.9 Limits, error codes and troubleshooting</h2>
+
+<table>
+<thead><tr><th>Response</th><th>Meaning and remedy</th></tr></thead>
+<tbody>
+<tr><td><code>503</code></td><td>The module is disabled. Enable it in the MCP Server tab.</td></tr>
+<tr><td><code>401</code> + <code>WWW-Authenticate</code></td><td>No token, or one that failed signature, issuer or audience checks. The client should run the OAuth flow. If it loops, check the issuer with <b>Test Authentik</b>.</td></tr>
+<tr><td><code>403</code> no matching user</td><td>The username claim does not match an enabled Process Mining user. Create the user with that exact name, or change the <b>Username claim</b>.</td></tr>
+<tr><td><code>403</code> not in the required group</td><td>The token's <code>groups</code> claim lacks the configured group. Note that a group must exist in Authentik <em>and</em> have the user as a member for it to appear in the token.</td></tr>
+<tr><td>Connection is not assigned to you</td><td>Assign it to the user in the admin interface's <b>Database Connections</b> tab.</td></tr>
+</tbody>
+</table>
+
+<p>Two environment variables bound the server: <code>PMW_MCP_MAX_ROWS</code> (default 1000) caps the rows any one call returns, and <code>PMW_MCP_JWKS_CACHE_SECS</code> (default 3600) sets how long Authentik's signing keys are cached.</p>
+
+<div class="note"><strong>Note</strong> Only the <em>transport</em> used to fetch the JWKS skips certificate verification, on the assumption that Authentik is a trusted internal host. Token integrity does not depend on that transport: the signature is checked cryptographically against the keys it returns, so a tampered token fails regardless.</div>
+
+<div class="tip"><strong>When a client connects but shows no tools</strong> The transport is up and the token exchange succeeded, but every tool call is being refused &mdash; almost always at step 4 or 5 of the identity chain. Check the group and the username claim before touching anything else; the connection state in the client reflects only the OAuth handshake, not whether a single call has ever been answered.</div>
+
+</section>

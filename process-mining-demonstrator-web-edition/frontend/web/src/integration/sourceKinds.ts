@@ -7,8 +7,11 @@
  *  now; the rest are listed as `available: false` to show the intended structure. */
 
 // 'sourceType' is a dynamic picker of the user's source types (stored as an id in the
-// config); the wizard populates its options at runtime.
-export type SourceFieldType = 'text' | 'password' | 'number' | 'select' | 'sourceType'
+// config); 'connection' picks one of the user's connections; 'sinkPort' picks a free
+// port from the sink pool. The wizard populates these options at runtime.
+export type SourceFieldType =
+  | 'text' | 'password' | 'number' | 'select' | 'sourceType' | 'connection' | 'sinkPort'
+  | 'checkbox'
 
 export interface SourceFieldDef {
   key: string
@@ -71,40 +74,49 @@ export const SOURCE_KINDS: SourceKindDef[] = [
   },
   // ── Future kinds — structure only, not selectable yet ──────────────────────
   {
-    id: 'database',
-    label: 'Database',
-    icon: '🗄️',
-    description: 'Rows from a database table or query.',
-    available: false,
+    id: 'ai-agent-logging-sink',
+    label: 'API Server - Event Receiver',
+    icon: '🤖',
+    description:
+      'An HTTP/HTTPS API that AI agents POST journey entries to as JSON. Each entry is ' +
+      'written to the chosen connection’s JOURNEYS table; unknown steps are created.',
+    available: true,
     fields: [
-      { key: 'dsn', label: 'Connection string', type: 'text', required: true },
-      { key: 'query', label: 'Table or SQL query', type: 'text', required: true },
+      {
+        key: 'connectionId',
+        label: 'Connection',
+        type: 'connection',
+        required: true,
+        help: 'The database connection whose JOURNEYS table posted entries are written to.',
+      },
+      {
+        key: 'titleShort',
+        label: 'Project code',
+        type: 'text',
+        required: true,
+        placeholder: 'e.g. AGENTLOG',
+        help: 'Entries land in this project (TITLE_SHORT, ≤10 chars); it is created if new.',
+        layout: 'grow',
+      },
+      {
+        key: 'port',
+        label: 'Port',
+        type: 'sinkPort',
+        required: true,
+        help: 'A free slot from the sink pool; each shows its HTTP and HTTPS port.',
+        layout: 'grow',
+      },
+      {
+        key: 'tls',
+        label: 'TLS (address agents over HTTPS)',
+        type: 'checkbox',
+        default: 'true',
+        help: 'Which scheme agents should use — sets the HTTPS or HTTP endpoint shown in the request and SKILL.md.',
+        layout: 'narrow',
+      },
     ],
-    summary: (c) => String(c.query ?? c.dsn ?? ''),
-  },
-  {
-    id: 'rest',
-    label: 'REST API',
-    icon: '🌐',
-    description: 'Records fetched from an HTTP endpoint.',
-    available: false,
-    fields: [
-      { key: 'url', label: 'Endpoint URL', type: 'text', required: true },
-      { key: 'token', label: 'Bearer token', type: 'password' },
-    ],
-    summary: (c) => String(c.url ?? ''),
-  },
-  {
-    id: 'object-storage',
-    label: 'Object storage',
-    icon: '☁️',
-    description: 'Objects from an S3-compatible bucket.',
-    available: false,
-    fields: [
-      { key: 'bucket', label: 'Bucket', type: 'text', required: true },
-      { key: 'prefix', label: 'Prefix', type: 'text' },
-    ],
-    summary: (c) => `${c.bucket ?? ''}${c.prefix ? '/' + c.prefix : ''}`,
+    summary: (c) =>
+      `${c.tls === false ? 'HTTP' : 'HTTPS'} port ${c.port ?? '—'} · ${c.titleShort ?? ''}`,
   },
 ]
 

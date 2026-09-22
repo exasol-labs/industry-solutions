@@ -134,6 +134,14 @@ class _Session:
     def existing_keys(self, table: str, key_columns: Sequence[str]) -> set[tuple[str, ...]]:
         return self._backend.existing_keys(self._schema, table, list(key_columns))
 
+    def existing_step_ids(self) -> dict[str, int]:
+        """STEP name → activity id already stored for this schema (for id reuse on re-import)."""
+        return self._backend.existing_step_ids(self._schema)
+
+    def existing_project_ids(self) -> dict[str, int]:
+        """TITLE_SHORT code → PROJECT_ID already stored for this schema (for id reuse)."""
+        return self._backend.existing_project_ids(self._schema)
+
 
 class AbstractionLayer:
     """Registry of extractors + per-user run status. A process-wide singleton

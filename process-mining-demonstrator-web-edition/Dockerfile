@@ -31,7 +31,8 @@ ENV PYTHONUNBUFFERED=1 \
     PMW_FRONTEND_HOST=0.0.0.0 \
     PMW_ADMIN_HOST=0.0.0.0 \
     PMW_INTEGRATION_HOST=0.0.0.0 \
-    PMW_ACTIONS_HOST=0.0.0.0
+    PMW_ACTIONS_HOST=0.0.0.0 \
+    PMW_SINK_HOST=0.0.0.0
 
 WORKDIR /app
 
@@ -46,6 +47,8 @@ COPY backend/ ./backend/
 COPY admin/ ./admin/
 COPY integration/ ./integration/
 COPY actions/ ./actions/
+COPY sink/ ./sink/
+COPY mcp/ ./mcp/
 COPY frontend/ ./frontend/
 # Bundled demo logs — seeded into the integration files sandbox on first run.
 COPY examples/ ./examples/
@@ -65,7 +68,7 @@ COPY --from=web /web/dist ./frontend/web/dist
 # 8453 = admin (HTTPS), 8100 = integration console (HTTP), 8463 = integration
 # console (HTTPS), 8110 = Actions (HTTP), 8473 = Actions (HTTPS) — HTTPS ports
 # activate once TLS is enabled in admin. 8000 (backend) is kept internal.
-EXPOSE 8080 8443 8090 8453 8100 8463 8110 8473
+EXPOSE 8080 8443 8090 8453 8100 8463 8110 8473 8120-8129 8483-8492 8130 8493
 
 # The backend serves TLS (internal self-signed cert); liveness on loopback does
 # not need cert verification.

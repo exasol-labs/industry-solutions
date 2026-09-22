@@ -346,7 +346,7 @@ def test_run_json_array_is_import_once_by_signature(app_env, monkeypatch):
         return client.post(
             f"/api/integration/sources/{source.id}/run",
             headers={"X-PMW-User": "dev"},
-            json={"projectId": "P1", "connectionId": conn.id},
+            json={"titleShort": "P1", "connectionId": conn.id},
         )
 
     first = run()
@@ -391,7 +391,7 @@ def test_run_rejects_malformed_xml(app_env, monkeypatch):
     resp = TestClient(app).post(
         f"/api/integration/sources/{source.id}/run",
         headers={"X-PMW-User": "dev"},
-        json={"projectId": "P1", "connectionId": conn.id},
+        json={"titleShort": "P1", "connectionId": conn.id},
     )
     assert resp.status_code == 400
     assert "xml" in resp.json()["detail"].lower()

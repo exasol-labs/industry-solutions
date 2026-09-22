@@ -34,6 +34,7 @@ function graphFrom(edges: [string, string, number][], groups: Record<string, str
       toStep,
       occurrences,
       avgSecs: 60,
+      medianSecs: 60,
       minSecs: null,
       maxSecs: null,
       stdDevSecs: null,
@@ -90,6 +91,22 @@ describe('computeLayout', () => {
     expect(A.y).toBeLessThan(B.y)
     expect(B.y).toBeLessThan(C.y)
     expect(layout.canvasSize.width).toBeGreaterThanOrEqual(NODE_W)
+  })
+
+  it('lays a linear chain left-to-right when horizontal', () => {
+    const g = graphFrom([
+      ['A', 'B', 10],
+      ['B', 'C', 8],
+    ])
+    const layout = computeLayout(g, defaultNodeHeight(g), true, NODE_W, 1, 1, true)
+    const { A, B, C } = layout.nodePositions
+    // Longest-path layering now runs along x, with the single-node layers aligned on y.
+    expect(A.x).toBeLessThan(B.x)
+    expect(B.x).toBeLessThan(C.x)
+    expect(A.y).toBeCloseTo(B.y)
+    expect(B.y).toBeCloseTo(C.y)
+    // A left-to-right chain makes the canvas wider than it is tall.
+    expect(layout.canvasSize.width).toBeGreaterThan(layout.canvasSize.height)
   })
 
   it('spreads a fork onto the same layer', () => {

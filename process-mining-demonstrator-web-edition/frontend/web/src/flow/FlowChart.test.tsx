@@ -37,9 +37,9 @@ function graphWithGroup(): ProcessGraph {
   return {
     steps,
     transitions: [
-      { fromStep: 'Start', toStep: 'A', occurrences: 5, avgSecs: 60, minSecs: null, maxSecs: null, stdDevSecs: null },
-      { fromStep: 'A', toStep: 'B', occurrences: 4, avgSecs: 60, minSecs: null, maxSecs: null, stdDevSecs: null },
-      { fromStep: 'B', toStep: 'C', occurrences: 3, avgSecs: 60, minSecs: null, maxSecs: null, stdDevSecs: null },
+      { fromStep: 'Start', toStep: 'A', occurrences: 5, avgSecs: 60, medianSecs: 60, minSecs: null, maxSecs: null, stdDevSecs: null },
+      { fromStep: 'A', toStep: 'B', occurrences: 4, avgSecs: 60, medianSecs: 60, minSecs: null, maxSecs: null, stdDevSecs: null },
+      { fromStep: 'B', toStep: 'C', occurrences: 3, avgSecs: 60, medianSecs: 60, minSecs: null, maxSecs: null, stdDevSecs: null },
     ],
   }
 }

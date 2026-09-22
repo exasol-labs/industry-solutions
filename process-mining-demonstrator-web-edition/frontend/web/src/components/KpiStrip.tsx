@@ -162,6 +162,8 @@ function tileSpec(id: string, store: Store, inputs: TileInputs): KpiTileSpec | n
       return { label: meta.label, icon: meta.icon, value: formatDurationLong(durations.minSecs), loading }
     case 'avgJourney':
       return { label: meta.label, icon: meta.icon, value: formatDurationLong(durations.avgSecs), loading }
+    case 'medianJourney':
+      return { label: meta.label, icon: meta.icon, value: formatDurationLong(durations.medianSecs), loading }
     case 'stdDev':
       return { label: meta.label, icon: meta.icon, value: formatDurationLong(durations.stdDevSecs), loading }
     case 'longestJourney':

@@ -303,7 +303,7 @@ function SimulationResults({
   slot: SimSlot
   tab: ResultsTab
   onTabChange: (tab: ResultsTab) => void
-  projectId: string
+  projectId: number
 }) {
   const store = useStore()
   const buckets = useMemo(() => cycleTimeBuckets(result.cycleTimes), [result.cycleTimes])

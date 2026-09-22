@@ -23,6 +23,7 @@ const t: ProcessTransition = {
   toStep: 'B',
   occurrences: 7,
   avgSecs: 1.0,
+  medianSecs: 1.0,
   minSecs: 0.5,
   maxSecs: 3.0,
   stdDevSecs: 0.25,
@@ -80,8 +81,8 @@ describe('maxMetricValue', () => {
   const graph: ProcessGraph = {
     steps: {},
     transitions: [
-      { fromStep: 'A', toStep: 'B', occurrences: 3, avgSecs: 2, minSecs: 1, maxSecs: 4, stdDevSecs: null },
-      { fromStep: 'B', toStep: 'C', occurrences: 9, avgSecs: 5, minSecs: 2, maxSecs: 8, stdDevSecs: null },
+      { fromStep: 'A', toStep: 'B', occurrences: 3, avgSecs: 2, medianSecs: 2, minSecs: 1, maxSecs: 4, stdDevSecs: null },
+      { fromStep: 'B', toStep: 'C', occurrences: 9, avgSecs: 5, medianSecs: 5, minSecs: 2, maxSecs: 8, stdDevSecs: null },
     ],
   }
 

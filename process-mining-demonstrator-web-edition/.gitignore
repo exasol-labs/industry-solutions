@@ -1,5 +1,14 @@
 .venv/
-data/
+# Runtime state under data/ is ignored, EXCEPT the signed program license, which
+# is shipped in-repo (time-bombed; refreshed with new files before it expires).
+data/*
+!data/license.json
+# Stray runtime/test SQLite databases (e.g. a security store written to the repo root
+# when a test runs without PMW_DATA_DIR) — never repo content.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 node_modules/
 dist/
 __pycache__/

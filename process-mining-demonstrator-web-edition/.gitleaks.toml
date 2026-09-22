@@ -26,9 +26,4 @@ paths = [
 # offline issuer. If the issuer key is ever rotated, update this value too.
 regexes = [
   '''59afd128c103c3c6bb4013683af9612f858d134be5d59102809996304cdb798f''',
-  # Prose in README.md / ARCHITECTURE.md listing the sign-in factors
-  # ("password, TOTP, WebAuthn passkey, mandatory-2FA enrolment"). Not a
-  # secret. gitleaks <= v8.18.4 ignores it; the broader generic-api-key rule
-  # in >= v8.30 flags it, so allowlist it explicitly to survive a version bump.
-  '''mandatory-2FA''',
 ]

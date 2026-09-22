@@ -138,6 +138,21 @@
   .guides-head .label{font-size:12.5px; font-weight:700; letter-spacing:.14em;
     text-transform:uppercase; color:var(--soft)}
   .guide-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(212px,1fr)); gap:14px}
+  /* ── grouped, collapsible docs (two groups side by side) — mirrors the /home page ── */
+  .doc-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start}
+  @media (max-width:720px){.doc-grid{grid-template-columns:1fr}}
+  .doc-group{border:1px solid var(--card-line); border-radius:14px; background:rgba(18,24,38,.42);
+    overflow:hidden}
+  .doc-sum{list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px;
+    padding:13px 16px; font-size:14px; font-weight:700; color:var(--ink); user-select:none}
+  .doc-sum::-webkit-details-marker{display:none}
+  .doc-sum:hover{background:rgba(255,255,255,.05)}
+  .doc-sum .chev{transition:transform .18s ease; color:var(--soft); font-size:12px}
+  .doc-group[open] .chev{transform:rotate(90deg)}
+  .doc-count{margin-left:auto; font-size:11px; font-weight:800; letter-spacing:.04em; color:var(--soft);
+    border:1px solid var(--card-line); border-radius:999px; padding:2px 8px; background:rgba(255,255,255,.05)}
+  .doc-body{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px;
+    padding:4px 14px 16px}
   .guide{
     display:flex; align-items:center; gap:12px; padding:13px 15px; border-radius:14px;
     text-decoration:none; color:var(--ink);
@@ -209,7 +224,7 @@
     </svg>
 
     <div class="row first">
-      <a class="app admin" id="card-admin" target="_blank" rel="noopener">
+      <a class="app admin" id="card-admin">
         <span class="open">↗</span>
         <span class="tile"><!-- gear -->
           <svg viewBox="0 0 24 24">
@@ -224,7 +239,7 @@
     </div>
 
     <div class="row second">
-      <a class="app integration" id="card-integration" target="_blank" rel="noopener">
+      <a class="app integration" id="card-integration">
         <span class="open">↗</span>
         <span class="tile"><!-- funnel -->
           <svg viewBox="0 0 24 24">
@@ -236,7 +251,7 @@
         <span class="port" id="port-integration"></span>
       </a>
 
-      <a class="app actions" id="card-actions" target="_blank" rel="noopener">
+      <a class="app actions" id="card-actions">
         <span class="open">↗</span>
         <span class="tile"><!-- hammer -->
           <svg viewBox="0 0 24 24">
@@ -250,7 +265,7 @@
         <span class="port" id="port-actions"></span>
       </a>
 
-      <a class="app workbench" id="card-workbench" target="_blank" rel="noopener">
+      <a class="app workbench" id="card-workbench">
         <span class="open">↗</span>
         <span class="tile"><!-- wrench -->
           <svg viewBox="0 0 24 24">
@@ -279,6 +294,21 @@
 <script>
   "use strict";
 
+  /* Open a link in a NEW TAB reliably across browsers. Safari can silently swallow a
+     plain target="_blank" on JS-built anchors, so on a normal left-click we open the tab
+     explicitly during the user gesture; a modified click (⌘/Ctrl/Shift/middle) is left to
+     the browser, and if a pop-up is blocked we fall back to same-tab so the doc still opens. */
+  function openInNewTab(e) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var url = e.currentTarget.href;
+    if (!url) return;
+    e.preventDefault();
+    // NB: no "noopener" here — with it, window.open returns null even on SUCCESS, which
+    // would trip the fallback below and open the page in this tab too (a double-open).
+    var w = window.open(url, "_blank");
+    if (!w) location.href = url; // genuinely blocked → same tab, so the page still opens
+  }
+
   /* ── links: derived from this page's own origin.
      The surface ports keep fixed offsets from the app port in every deployment
      (8080→8090/8100/8110 native, 10080→10090/10100/10110 in Docker, and the
@@ -298,6 +328,7 @@
       var p = surfaces[key];
       var card = document.getElementById("card-" + key);
       card.href = proto + "//" + host + ":" + p + "/";
+      card.addEventListener("click", openInNewTab);
       document.getElementById("port-" + key).textContent = ":" + p;
     });
   })();
@@ -330,62 +361,109 @@
      /guides/… . The list comes from /guides/index.json so future guides appear
      automatically; a built-in list covers the fetch failing (e.g. older server). */
   (function fillGuides() {
-    // Self-contained HTML guides (sorted by the server — a numeric filename prefix
-    // gives the logical order) followed by the PDF manual at the very end.
+    // Fallback list (used only if /guides/index.json can't be read) — numbered names so
+    // the decade grouping below still works offline, matching the files the server lists.
     var FALLBACK = [
-      { file: "Installation-Guide.html", title: "Installation Guide", type: "html" },
-      { file: "Process-Mining-Introduction.html", title: "What is Process Mining?", type: "html" },
-      { file: "Work-Bench-Quick-Start.html", title: "Work-Bench Quick-Start", type: "html" },
-      { file: "Administration-Quick-Start.html", title: "Administration Quick-Start", type: "html" },
-      { file: "Drill-Down-Quick-Start.html", title: "Drill-Down Quick-Start", type: "html" },
-      { file: "Process-Similarity-Explained.html", title: "Process Similarity Explained", type: "html" },
-      { file: "Simulation-Explained.html", title: "Simulation Explained", type: "html" },
-      { file: "Conformance-Explained.html", title: "Conformance Check Explained", type: "html" },
+      { file: "01-Process-Mining-Introduction.html", title: "What is Process Mining?", type: "html" },
+      { file: "10-Installation-Guide.html", title: "Installation Guide", type: "html" },
+      { file: "20-Administration-Quick-Start.html", title: "Administration Quick-Start", type: "html" },
+      { file: "21-Users-and-Permissions.html", title: "Users and Permissions", type: "html" },
+      { file: "30-Integration-Console.html", title: "Integration Console", type: "html" },
+      { file: "40-Action-Builder.html", title: "Action Builder", type: "html" },
+      { file: "50-Work-Bench-Quick-Start.html", title: "Work-Bench Quick-Start", type: "html" },
+      { file: "55-Drill-Down-Quick-Start.html", title: "Drill-Down Quick-Start", type: "html" },
+      { file: "80-Process-Similarity-Explained.html", title: "Process Similarity Explained", type: "html" },
       { file: "Process-Mining-Demonstrator-Manual.pdf", title: "Full Manual (PDF)", type: "pdf" }
     ];
     var BOOK = '<svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/><path d="M9 7.5h7M9 11h7"/></svg>';
     // A document-with-folded-corner glyph for the PDF, plus a "PDF" wordmark.
     var DOC = '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M8.5 13.5h7M8.5 16.5h5"/></svg>';
 
-    function renderList(list) {
-      var grid = document.getElementById("guide-grid");
-      grid.innerHTML = "";
+    // Groups keyed by the DECADE of the leading "NN-" filename number (mirrors /home).
+    var DECADE = { 0: "Introduction", 1: "Installation", 2: "Administration",
+      3: "Integration & Import", 4: "Actions", 5: "Work-Bench & Analysis",
+      8: "Concepts Explained" };
+
+    function nameOk(f) {
+      return f && f.charAt(0) !== "." && !/[\/\\]/.test(f) && f.indexOf("..") < 0 &&
+        /\.(html|pdf)$/i.test(f);
+    }
+
+    function groupGuides(list) {
+      var groups = {}, order = [];
       list.forEach(function (g) {
-        // Accept any single-segment .html/.pdf name (spaces / numeric prefixes are
-        // fine); reject only traversal, hidden and control-char names.
         var f = g.file || "";
-        if (!f || f.charAt(0) === "." || /[\/\\]/.test(f) || f.indexOf("..") >= 0 ||
-            !/\.(html|pdf)$/i.test(f)) return;
+        if (!nameOk(f)) return;
         var isPdf = g.type === "pdf" || /\.pdf$/i.test(f);
-        var a = document.createElement("a");
-        a.className = "guide" + (isPdf ? " guide-pdf" : "");
-        a.href = "/guides/" + encodeURIComponent(f);
-        a.target = "_blank";
-        a.rel = "noopener";
-        var tile = document.createElement("span");
-        tile.className = "g-tile";
-        tile.innerHTML = isPdf ? DOC : BOOK;
-        var title = document.createElement("span");
-        title.className = "g-title";
-        title.textContent = g.title || g.file.replace(/\.(html|pdf)$/i, "").replace(/-/g, " ");
-        a.appendChild(tile);
-        a.appendChild(title);
-        if (isPdf) {
-          var badge = document.createElement("span");
-          badge.className = "g-badge";
-          badge.textContent = "PDF";
-          a.appendChild(badge);
-        }
-        grid.appendChild(a);
+        var m = /^(\d+)-/.exec(f), key, label, ord;
+        if (isPdf) { key = "pdf"; label = "Full Manual"; ord = 999; }
+        else if (m) { var d = Math.floor(parseInt(m[1], 10) / 10); key = "d" + d;
+          label = DECADE[d] || ("Guides " + d + "0–" + d + "9"); ord = d; }
+        else { key = "other"; label = "More guides"; ord = 500; }
+        if (!groups[key]) { groups[key] = { label: label, order: ord, guides: [] }; order.push(key); }
+        groups[key].guides.push(g);
+      });
+      return order.map(function (k) { return groups[k]; })
+        .sort(function (a, b) { return a.order - b.order; });
+    }
+
+    function makeGuide(g) {
+      var isPdf = g.type === "pdf" || /\.pdf$/i.test(g.file);
+      var a = document.createElement("a");
+      a.className = "guide" + (isPdf ? " guide-pdf" : "");
+      // Resolve the guide URL against the launcher's own address (not a bare "/guides/…"),
+      // so it holds whether the launcher is served at the origin root or under a
+      // reverse-proxy sub-path — the same way the surface cards resolve their links.
+      a.href = new URL("guides/" + encodeURIComponent(g.file), document.baseURI).href;
+      a.addEventListener("click", openInNewTab); // reliable new tab (Safari-safe)
+      var tile = document.createElement("span");
+      tile.className = "g-tile";
+      tile.innerHTML = isPdf ? DOC : BOOK;
+      var title = document.createElement("span");
+      title.className = "g-title";
+      title.textContent = g.title ||
+        g.file.replace(/^\d+-/, "").replace(/\.(html|pdf)$/i, "").replace(/-/g, " ");
+      a.appendChild(tile);
+      a.appendChild(title);
+      if (isPdf) {
+        var badge = document.createElement("span");
+        badge.className = "g-badge";
+        badge.textContent = "PDF";
+        a.appendChild(badge);
+      }
+      return a;
+    }
+
+    function render(list) {
+      var host = document.getElementById("guide-grid");
+      host.className = "doc-grid";   // two collapsible groups side by side
+      host.innerHTML = "";
+      groupGuides(list).forEach(function (grp) {
+        var det = document.createElement("details");
+        det.className = "doc-group";
+        var sum = document.createElement("summary");
+        sum.className = "doc-sum";
+        var chev = document.createElement("span");
+        chev.className = "chev"; chev.textContent = "▶";
+        var lbl = document.createElement("span"); lbl.textContent = grp.label;
+        var cnt = document.createElement("span");
+        cnt.className = "doc-count"; cnt.textContent = String(grp.guides.length);
+        sum.appendChild(chev); sum.appendChild(lbl); sum.appendChild(cnt);
+        det.appendChild(sum);
+        var body = document.createElement("div");
+        body.className = "doc-body";
+        grp.guides.forEach(function (g) { body.appendChild(makeGuide(g)); });
+        det.appendChild(body);
+        host.appendChild(det);
       });
     }
 
-    renderList(FALLBACK);
+    render(FALLBACK);
     fetch("/guides/index.json").then(function (r) {
       if (!r.ok) throw new Error();
       return r.json();
     }).then(function (list) {
-      if (Array.isArray(list) && list.length) renderList(list);
+      if (Array.isArray(list) && list.length) render(list);
     }).catch(function () { /* keep the fallback list */ });
   })();
 

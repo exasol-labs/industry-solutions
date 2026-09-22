@@ -36,6 +36,8 @@ export interface MetricEdgeData extends Record<string, unknown> {
   journeyTotal: number
   hasNote: boolean
   nodeH: number
+  /** Left-to-right layout: curve the edge horizontally (handles are on the sides). */
+  horizontal?: boolean
   edgeScale: number
   onEdgeClick?: (transition: ProcessTransition, screen: { x: number; y: number }) => void
 }
@@ -102,10 +104,20 @@ function edgePath(
   sy: number,
   tx: number,
   ty: number,
+  horizontal = false,
 ): { path: string; midX: number; midY: number } {
-  const dy = ty - sy
-  const cpDist = Math.max(Math.abs(dy) * 0.45, 40)
-  const path = `M ${sx},${sy} C ${sx},${sy + cpDist} ${tx},${ty - cpDist} ${tx},${ty}`
+  // A cubic Bézier whose control points leave the source and enter the target along the
+  // flow axis — down/up for a top-to-bottom map, right/left for a left-to-right one — so the
+  // curve emerges cleanly from the node's handle in either orientation.
+  const path = horizontal
+    ? (() => {
+        const cpDist = Math.max(Math.abs(tx - sx) * 0.45, 40)
+        return `M ${sx},${sy} C ${sx + cpDist},${sy} ${tx - cpDist},${ty} ${tx},${ty}`
+      })()
+    : (() => {
+        const cpDist = Math.max(Math.abs(ty - sy) * 0.45, 40)
+        return `M ${sx},${sy} C ${sx},${sy + cpDist} ${tx},${ty - cpDist} ${tx},${ty}`
+      })()
   return { path, midX: (sx + tx) / 2, midY: (sy + ty) / 2 }
 }
 
@@ -133,6 +145,7 @@ function MetricEdgeComponent({
     journeyTotal,
     hasNote,
     nodeH,
+    horizontal,
     edgeScale,
     onEdgeClick,
   } = d
@@ -238,7 +251,7 @@ function MetricEdgeComponent({
     midX = cx
     midY = cy
   } else {
-    const geometry = edgePath(sourceX, sourceY, targetX, targetY)
+    const geometry = edgePath(sourceX, sourceY, targetX, targetY, horizontal)
     path = geometry.path
     midX = geometry.midX
     midY = geometry.midY

@@ -66,9 +66,10 @@ class ConnectionProfile(Base):
 
 
 class Project(Base):
-    projectId: str
+    projectId: int  # PROJECT_ID is a SMALLINT (an allocated integer)
     title: str
     description: str = ""
+    titleShort: str = ""  # human-readable code; '#'-prefix = aggregate detail, 'Σ' = high-level
 
 
 class StepInfo(Base):
@@ -88,6 +89,7 @@ class ProcessTransition(Base):
     toStep: str
     occurrences: int
     avgSecs: float | None = None
+    medianSecs: float | None = None
     minSecs: float | None = None
     maxSecs: float | None = None
     stdDevSecs: float | None = None
@@ -101,6 +103,7 @@ class ProcessTransition(Base):
             return float(self.occurrences)
         return {
             TransitionMetric.avgTime: self.avgSecs,
+            TransitionMetric.medianTime: self.medianSecs,
             TransitionMetric.minTime: self.minSecs,
             TransitionMetric.maxTime: self.maxSecs,
             TransitionMetric.stdDev: self.stdDevSecs,
@@ -147,6 +150,7 @@ class JourneyTimePoint(Base):
 class TransitionMetric(str, Enum):
     count = "Count"
     avgTime = "Avg Time"
+    medianTime = "Median Time"
     minTime = "Min Time"
     maxTime = "Max Time"
     stdDev = "Std Dev"
@@ -211,6 +215,15 @@ class FilterSpec(Base):
     meta1: str = ""
     meta2: str = ""
     meta3: str = ""
+    # List-based META value include/exclude (from the node "Meta Infos" panel), mirroring
+    # includedSteps/excludedSteps: a journey is kept when it has ≥1 event whose META_n is
+    # in the included set, and none whose META_n is in the excluded set.
+    includedMeta1: list[str] = Field(default_factory=list)
+    excludedMeta1: list[str] = Field(default_factory=list)
+    includedMeta2: list[str] = Field(default_factory=list)
+    excludedMeta2: list[str] = Field(default_factory=list)
+    includedMeta3: list[str] = Field(default_factory=list)
+    excludedMeta3: list[str] = Field(default_factory=list)
     minSteps: int = 0
     maxSteps: int = INT_MAX
     minJourneyTime: int = 0
@@ -230,6 +243,12 @@ class FilterGroup(Base):
     meta1: str = ""
     meta2: str = ""
     meta3: str = ""
+    includedMeta1: list[str] = Field(default_factory=list)
+    excludedMeta1: list[str] = Field(default_factory=list)
+    includedMeta2: list[str] = Field(default_factory=list)
+    excludedMeta2: list[str] = Field(default_factory=list)
+    includedMeta3: list[str] = Field(default_factory=list)
+    excludedMeta3: list[str] = Field(default_factory=list)
     minSteps: int = 0
     maxSteps: int = INT_MAX
     minJourneyTime: int = 0
@@ -388,6 +407,7 @@ class SimulationResult(Base):
 class DurationStats(Base):
     minSecs: float | None = None
     avgSecs: float | None = None
+    medianSecs: float | None = None
     stdDevSecs: float | None = None
     maxSecs: float | None = None
 

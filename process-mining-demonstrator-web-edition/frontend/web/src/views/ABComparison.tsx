@@ -17,6 +17,7 @@ import { useNoteHandlers } from './useNoteHandlers'
 export function ABComparison() {
   const store = useStore()
   const [valveOpen, setValveOpen] = useSetting<boolean>('abComparison.valveOpen')
+  const [flowHorizontal, setFlowHorizontal] = useSetting<boolean>('graph.flowHorizontal')
   const notes = useNoteHandlers()
 
   const masterSync = useRef<SyncState>(createSyncState())
@@ -34,6 +35,16 @@ export function ABComparison() {
       }
     }
     setValveOpen(!valveOpen)
+  }
+
+  const toggleHorizontal = () => {
+    // An orientation change invalidates the shared drag positions (they're in the old
+    // layout axis), so clear the sync overrides and viewport — both panels then re-layout
+    // and re-fit fresh in the new orientation.
+    masterSync.current = { viewport: null, nodeOverrides: {}, version: masterSync.current.version + 1 }
+    bSync.current = { viewport: null, nodeOverrides: {}, version: bSync.current.version + 1 }
+    setFlowHorizontal(!flowHorizontal)
+    forceRender((n) => n + 1)
   }
 
   const copyLayoutAtoB = () => {
@@ -65,6 +76,7 @@ export function ABComparison() {
         syncState={masterSync.current}
         onSyncChange={onSyncChange}
         onCopyLayout={copyLayoutAtoB}
+        horizontal={flowHorizontal}
         notes={notes}
       />
       <div className="ab-divider">
@@ -80,12 +92,25 @@ export function ABComparison() {
         >
           ⇄
         </button>
+        <button
+          className="valve-btn"
+          onClick={toggleHorizontal}
+          title={
+            flowHorizontal
+              ? 'Flowchart layout: left-to-right — switch to top-down'
+              : 'Flowchart layout: top-down — switch to left-to-right'
+          }
+          aria-label={flowHorizontal ? 'Layout: horizontal' : 'Layout: top-down'}
+        >
+          {flowHorizontal ? '⬇' : '➡'}
+        </button>
       </div>
       <ABPanel
         side="b"
         syncState={valveOpen ? masterSync.current : bSync.current}
         onSyncChange={onSyncChange}
         skipInitialFit={valveOpen || bSync.current.viewport != null}
+        horizontal={flowHorizontal}
         notes={notes}
       />
 
@@ -123,6 +148,7 @@ function ABPanel({
   onSyncChange,
   skipInitialFit = false,
   onCopyLayout,
+  horizontal = false,
   notes,
 }: {
   side: ABSide
@@ -130,6 +156,7 @@ function ABPanel({
   onSyncChange: () => void
   skipInitialFit?: boolean
   onCopyLayout?: () => void
+  horizontal?: boolean
   notes: ReturnType<typeof useNoteHandlers>
 }) {
   const store = useStore()
@@ -288,11 +315,14 @@ function ABPanel({
         )
       ) : (
         <FlowChart
+          // Remount on orientation change so the panel re-seeds and re-fits the new axis.
+          key={`ab:${side}:${horizontal ? 'h' : 'v'}`}
           graph={graph}
-          projectId={store.selectedProject?.projectId ?? ''}
+          projectId={store.selectedProject?.projectId ?? 0}
           chartMode={label}
           metric={metric}
           journeyTotal={(side === 'a' ? store.abJourneyCountA : store.abJourneyCountB) ?? 0}
+          horizontal={horizontal}
           allowTransitionTable
           isLoading={loading}
           syncState={syncState}
@@ -309,6 +339,7 @@ function ABPanel({
             store.switchABSide(side)
             store.handleNodeAction(node, action)
           }}
+          onMetaInfo={(node) => store.openMetaInfo(node)}
           notes={store.projectNotes}
           onNodeNote={notes.openNodeNotes}
           onEdgeNote={notes.openEdgeNotes}
