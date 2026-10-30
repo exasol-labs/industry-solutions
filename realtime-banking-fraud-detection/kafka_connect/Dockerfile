@@ -1,4 +1,4 @@
-FROM confluentinc/cp-kafka-connect:7.5.0 AS confluent_connect
+FROM confluentinc/cp-kafka-connect:7.5.9 AS confluent_connect
 
 FROM debezium/connect:2.4.2.Final
 
