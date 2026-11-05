@@ -1,6 +1,6 @@
 numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.5.2
-pyexasol==0.27.1
+pyexasol==0.27.0
 psycopg2-binary==2.9.10
 streamlit==1.44.1
